@@ -43,28 +43,28 @@ function fmtDate(ts: number) {
 function ConfidenceBadge({ tier }: { tier: 'A' | 'B' | 'C' | null }) {
   if (tier === 'A')
     return (
-      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 border border-white/20 text-zinc-300 text-xs font-mono font-semibold">
-        <span className="w-1.5 h-1.5 rounded-full bg-white" />
+      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/5 border border-black/10 text-[#3f3f3f] text-xs font-mono font-semibold">
+        <span className="w-1.5 h-1.5 rounded-full bg-[#0f0f0f]" />
         Tier A · Watermark Match
       </span>
     );
   if (tier === 'B')
     return (
-      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 border border-white/20 text-zinc-300 text-xs font-mono font-semibold">
-        <span className="w-1.5 h-1.5 rounded-full bg-white" />
+      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/5 border border-black/10 text-[#3f3f3f] text-xs font-mono font-semibold">
+        <span className="w-1.5 h-1.5 rounded-full bg-[#0f0f0f]" />
         Tier B · pHash Match
       </span>
     );
   if (tier === 'C')
     return (
-      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 border border-white/20 text-zinc-300 text-xs font-mono font-semibold">
-        <span className="w-1.5 h-1.5 rounded-full bg-white" />
+      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/5 border border-black/10 text-[#3f3f3f] text-xs font-mono font-semibold">
+        <span className="w-1.5 h-1.5 rounded-full bg-[#0f0f0f]" />
         Tier C · External AI Detected
       </span>
     );
   return (
-    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 border border-white/20 text-red-300 text-xs font-mono font-semibold">
-      <span className="w-1.5 h-1.5 rounded-full bg-white" />
+    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/5 border border-black/10 text-red-700 text-xs font-mono font-semibold">
+      <span className="w-1.5 h-1.5 rounded-full bg-[#0f0f0f]" />
       No Stamp Found
     </span>
   );
@@ -80,13 +80,13 @@ function StampResultCard({ result }: { result: VerifyResult }) {
       <div className="flex items-start justify-between mb-6">
         <div>
           <ConfidenceBadge tier={result.tier} />
-          <p className="mt-3 text-sm text-zinc-400">{result.label}</p>
+          <p className="mt-3 text-sm text-[#606060]">{result.label}</p>
         </div>
         {result.tier && (
           <div className="text-right">
-            {result.tier === 'A' && <div className="text-white text-3xl">✓</div>}
-            {result.tier === 'B' && <div className="text-white text-3xl">~</div>}
-            {result.tier === 'C' && <div className="text-white text-3xl">ℹ</div>}
+            {result.tier === 'A' && <div className="text-[#0f0f0f] text-3xl">✓</div>}
+            {result.tier === 'B' && <div className="text-[#0f0f0f] text-3xl">~</div>}
+            {result.tier === 'C' && <div className="text-[#0f0f0f] text-3xl">ℹ</div>}
           </div>
         )}
       </div>
@@ -95,7 +95,7 @@ function StampResultCard({ result }: { result: VerifyResult }) {
       {!result.tier && (
         <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-6 text-center">
           <div className="text-4xl mb-3">🔍</div>
-          <p className="text-zinc-400 text-sm">
+          <p className="text-[#606060] text-sm">
             This image has no STAMP record. It may be human-created, an unstamped AI image, or from
             before STAMP was deployed.
           </p>
@@ -104,11 +104,11 @@ function StampResultCard({ result }: { result: VerifyResult }) {
 
       {/* Match found */}
       {result.tier && record && (
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden">
+        <div className="rounded-2xl border border-black/10 bg-[#f7f7f7] overflow-hidden">
           {/* Stamp ID bar */}
-          <div className="px-5 py-3 border-b border-white/5 bg-white/5 flex items-center justify-between">
+          <div className="px-5 py-3 border-b border-black/10 bg-black/5 flex items-center justify-between">
             <span className="text-xs text-zinc-500 uppercase tracking-widest">Stamp ID</span>
-            <span className="font-mono text-zinc-300 text-sm">#{record.stampId}</span>
+            <span className="font-mono text-[#3f3f3f] text-sm">#{record.stampId}</span>
           </div>
 
           {/* Data rows */}
@@ -133,19 +133,19 @@ function StampResultCard({ result }: { result: VerifyResult }) {
           </div>
 
           {/* Content hash */}
-          <div className="px-5 py-4 bg-white/[0.02]">
+          <div className="px-5 py-4 bg-[#f7f7f7]">
             <p className="text-xs text-zinc-500 mb-1">Content Hash (SHA-256)</p>
-            <p className="font-mono text-xs text-zinc-400 break-all">{record.contentHash}</p>
+            <p className="font-mono text-xs text-[#606060] break-all">{record.contentHash}</p>
           </div>
 
           {/* Tx link */}
           {record.txHash && (
-            <div className="px-5 py-3 border-t border-white/5 flex justify-end">
+            <div className="px-5 py-3 border-t border-black/10 flex justify-end">
               <a
                 href={`${explorerBase}/tx/${record.txHash}`}
                 target="_blank"
                 rel="noreferrer"
-                className="text-xs text-zinc-400 hover:text-zinc-300 transition-colors flex items-center gap-1"
+                className="text-xs text-[#606060] hover:text-[#3f3f3f] transition-colors flex items-center gap-1"
               >
                 View on Monad Explorer ↗
               </a>
@@ -160,7 +160,7 @@ function StampResultCard({ result }: { result: VerifyResult }) {
           <p className="text-xs text-zinc-500 mb-2">{result.candidates.length - 1} other possible matches:</p>
           <div className="flex flex-col gap-2">
             {result.candidates.slice(1, 4).map((c) => (
-              <div key={c.id} className="rounded-lg border border-white/5 bg-white/[0.02] px-4 py-2 flex items-center justify-between">
+              <div key={c.id} className="rounded-lg border border-black/10 bg-[#f7f7f7] px-4 py-2 flex items-center justify-between">
                 <span className="font-mono text-xs text-zinc-500">#{c.stampId}</span>
                 <span className="text-xs text-zinc-600">{c.model}</span>
                 <span className="text-xs text-zinc-700">{shortAddr(c.creator)}</span>
@@ -182,12 +182,12 @@ function Row({ label, value, link }: { label: string; value: string; link?: stri
           href={link}
           target="_blank"
           rel="noreferrer"
-          className="font-mono text-xs text-zinc-400 hover:text-zinc-300 transition-colors"
+          className="font-mono text-xs text-[#606060] hover:text-[#3f3f3f] transition-colors"
         >
           {value} ↗
         </a>
       ) : (
-        <span className="font-mono text-xs text-zinc-300">{value}</span>
+        <span className="font-mono text-xs text-[#3f3f3f]">{value}</span>
       )}
     </div>
   );
@@ -197,16 +197,18 @@ function Row({ label, value, link }: { label: string; value: string; link?: stri
 export default function VerifyPage() {
   const [phase, setPhase] = useState<Phase>('idle');
   const [preview, setPreview] = useState<string | null>(null);
+  const [previewVideo, setPreviewVideo] = useState(false);
   const [result, setResult] = useState<VerifyResult | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const processFile = useCallback(async (file: File) => {
-    if (!file.type.startsWith('image/')) {
-      alert('Please upload an image file.');
+    const video = file.type.startsWith('video/') || /\.(mp4|webm|mov)$/i.test(file.name);
+    if (!video && !file.type.startsWith('image/')) {
+      alert('Please upload an image or a video.');
       return;
     }
 
-    // Show preview
+    setPreviewVideo(video);
     const reader = new FileReader();
     reader.onload = (e) => setPreview(e.target?.result as string);
     reader.readAsDataURL(file);
@@ -247,23 +249,24 @@ export default function VerifyPage() {
   const reset = () => {
     setPhase('idle');
     setPreview(null);
+    setPreviewVideo(false);
     setResult(null);
     if (fileRef.current) fileRef.current.value = '';
   };
 
   return (
-    <div className="pt-16 min-h-screen px-4 py-16">
+    <div className="px-6 py-8">
       <div className="max-w-2xl mx-auto">
         {/* Header */}
         <div className="text-center mb-12">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-white/10 bg-white/5 text-zinc-300 text-xs font-medium mb-6">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-black/10 bg-black/5 text-[#3f3f3f] text-xs font-medium mb-6">
             <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-pulse" />
             Powered by Monad + Envio
           </div>
-          <h1 className="text-4xl sm:text-5xl font-black text-white mb-4">
+          <h1 className="text-4xl sm:text-5xl font-black text-[#0f0f0f] mb-4">
             Verify an Image
           </h1>
-          <p className="text-zinc-400 text-lg max-w-md mx-auto">
+          <p className="text-[#606060] text-lg max-w-md mx-auto">
             Drop any image — a screenshot, a re-post, a crop. We&apos;ll check if it carries 
             a STAMP watermark and return its on-chain provenance.
           </p>
@@ -283,8 +286,8 @@ export default function VerifyPage() {
               ${phase === 'loading' ? 'pointer-events-none opacity-70' : ''}
               ${
                 phase === 'dragging'
-                  ? 'border-zinc-400 bg-white/5  drop-active'
-                  : 'border-white/10 bg-white/[0.025] hover:border-white/30 hover:bg-white/5'
+                  ? 'border-zinc-400 bg-black/5  drop-active'
+                  : 'border-black/10 bg-[#fafafa] hover:border-black/30 hover:bg-black/5'
               }
             `}
             style={{ minHeight: preview ? 'auto' : '320px' }}
@@ -293,7 +296,7 @@ export default function VerifyPage() {
             <input
               ref={fileRef}
               type="file"
-              accept="image/*"
+              accept="image/*,video/mp4,video/webm,video/quicktime"
               className="hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0];
@@ -304,9 +307,13 @@ export default function VerifyPage() {
             {/* Preview */}
             {preview && phase !== 'loading' ? (
               <div className="relative w-full rounded-3xl overflow-hidden">
-                <Image src={preview} alt="Preview" width={600} height={400} className="w-full h-auto object-contain max-h-64" />
+                {previewVideo ? (
+                  <video src={preview} className="w-full max-h-64" muted />
+                ) : (
+                  <Image src={preview} alt="Preview" width={600} height={400} className="w-full h-auto object-contain max-h-64" />
+                )}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                <p className="absolute bottom-4 left-0 right-0 text-center text-xs text-zinc-400">
+                <p className="absolute bottom-4 left-0 right-0 text-center text-xs text-[#606060]">
                   Click to choose a different image
                 </p>
               </div>
@@ -315,31 +322,31 @@ export default function VerifyPage() {
                 <div className="relative w-16 h-16">
                   <div className="absolute inset-0 rounded-full border-2 border-zinc-400/20" />
                   <div className="absolute inset-0 rounded-full border-2 border-zinc-400 border-t-transparent animate-spin" />
-                  <div className="absolute inset-3 rounded-full bg-white/5" />
+                  <div className="absolute inset-3 rounded-full bg-black/5" />
                 </div>
                 <div className="text-center">
-                  <p className="text-white font-semibold">Analysing image…</p>
-                  <p className="text-xs text-zinc-500 mt-1">Decoding watermark → querying Envio</p>
+                  <p className="text-[#0f0f0f] font-semibold">Analysing…</p>
+                  <p className="text-xs text-zinc-500 mt-1">Decoding watermark → checking the fingerprint</p>
                 </div>
               </div>
             ) : (
               <div className="py-16 flex flex-col items-center gap-4 px-8">
                 {/* Upload icon */}
-                <div className="w-16 h-16 rounded-2xl border border-white/10 bg-white/5 flex items-center justify-center">
+                <div className="w-16 h-16 rounded-2xl border border-black/10 bg-black/5 flex items-center justify-center">
                   <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-                    <path d="M14 4v14M8 10l6-6 6 6" stroke="#ffffff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M14 4v14M8 10l6-6 6 6" stroke="#0f0f0f" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                     <path d="M4 22h20" stroke="#888888" strokeWidth="1.5" strokeLinecap="round" />
                   </svg>
                 </div>
                 <div className="text-center">
-                  <p className="text-white font-semibold text-lg">
-                    {phase === 'dragging' ? 'Release to verify' : 'Drop image here'}
+                  <p className="text-[#0f0f0f] font-semibold text-lg">
+                    {phase === 'dragging' ? 'Release to verify' : 'Drop an image or video'}
                   </p>
-                  <p className="text-zinc-500 text-sm mt-1">or click to browse · PNG, JPG, WEBP</p>
+                  <p className="text-zinc-500 text-sm mt-1">or click to browse · PNG, JPG, WEBP, MP4</p>
                 </div>
                 <div className="flex flex-wrap gap-2 justify-center mt-2">
-                  {['Screenshot', 'Repost', 'Cropped', 'Re-compressed'].map((t) => (
-                    <span key={t} className="px-2.5 py-1 rounded-full bg-white/5 border border-white/5 text-zinc-600 text-xs">
+                  {['Screenshot', 'Repost', 'Cropped', 'Re-encoded video'].map((t) => (
+                    <span key={t} className="px-2.5 py-1 rounded-full bg-black/5 border border-black/10 text-zinc-600 text-xs">
                       {t}
                     </span>
                   ))}
@@ -355,19 +362,23 @@ export default function VerifyPage() {
             {/* Preview + reset row */}
             <div className="flex items-center gap-4">
               {preview && (
-                <div className="flex-shrink-0 w-20 h-20 rounded-xl overflow-hidden border border-white/10">
-                  <Image src={preview} alt="Uploaded" width={80} height={80} className="w-full h-full object-cover" />
+                <div className="flex-shrink-0 w-20 h-20 rounded-xl overflow-hidden border border-black/10">
+                  {previewVideo ? (
+                    <video src={preview} className="w-full h-full object-cover" muted />
+                  ) : (
+                    <Image src={preview} alt="Uploaded" width={80} height={80} className="w-full h-full object-cover" />
+                  )}
                 </div>
               )}
               <div className="flex-1 min-w-0">
-                <p className="text-white font-semibold">Analysis complete</p>
+                <p className="text-[#0f0f0f] font-semibold">Analysis complete</p>
                 <p className="text-xs text-zinc-500 truncate">
                   Tier {result.tier ?? 'none'} · {result.label}
                 </p>
               </div>
               <button
                 onClick={reset}
-                className="flex-shrink-0 px-4 py-2 rounded-lg border border-white/10 hover:border-white/20 bg-white/5 hover:bg-white/10 text-sm text-zinc-300 transition-all"
+                className="flex-shrink-0 px-4 py-2 rounded-lg border border-black/10 hover:border-black/10 bg-black/5 hover:bg-black/5 text-sm text-[#3f3f3f] transition-all"
               >
                 Verify another
               </button>
@@ -379,20 +390,20 @@ export default function VerifyPage() {
         )}
 
         {/* How verification works */}
-        <div className="mt-16 rounded-2xl border border-white/5 bg-white/[0.02] p-6">
-          <h2 className="text-white font-bold mb-4">How verification works</h2>
+        <div className="mt-16 rounded-2xl border border-black/10 bg-[#f7f7f7] p-6">
+          <h2 className="text-[#0f0f0f] font-bold mb-4">How verification works</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm text-zinc-500">
             <div className="flex gap-3">
-              <span className="text-zinc-400 font-mono text-xs mt-0.5">A</span>
+              <span className="text-[#606060] font-mono text-xs mt-0.5">A</span>
               <div>
-                <p className="text-zinc-300 font-medium mb-1">Watermark Decode</p>
-                <p>Reads the invisible TrustMark embedded in pixel values. Exact 40-bit StampID recovery.</p>
+                <p className="text-[#3f3f3f] font-medium mb-1">Watermark Decode</p>
+                <p>Reads the invisible TrustMark in an image, or in frames sampled from a video.</p>
               </div>
             </div>
             <div className="flex gap-3">
-              <span className="text-white font-mono text-xs mt-0.5">B</span>
+              <span className="text-[#0f0f0f] font-mono text-xs mt-0.5">B</span>
               <div>
-                <p className="text-zinc-300 font-medium mb-1">pHash Band Lookup</p>
+                <p className="text-[#3f3f3f] font-medium mb-1">pHash Band Lookup</p>
                 <p>Computes perceptual hash and queries 4 bands against Envio GraphQL. Matches within Hamming distance 7.</p>
               </div>
             </div>

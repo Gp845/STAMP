@@ -8,3 +8,10 @@ registry.json
 .env
 *.key
 node_modules/
+
+# Local agent skills and the installer lock. Not part of the app.
+.agents/
+skills-lock.json
+
+# Throwaway re-encode used while checking video stamps.
+*.attacked.mp4

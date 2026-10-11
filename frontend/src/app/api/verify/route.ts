@@ -1,4 +1,12 @@
+import { execFile } from 'child_process';
+import { randomUUID } from 'crypto';
+import { unlink, writeFile } from 'fs/promises';
+import os from 'os';
+import path from 'path';
+import { promisify } from 'util';
 import { NextRequest, NextResponse } from 'next/server';
+
+const execFileAsync = promisify(execFile);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/verify
@@ -67,6 +75,26 @@ async function queryEnvioById(stampId: string) {
   }
 }
 
+function isVideo(file: File) {
+  return file.type.startsWith('video/') || /\.(mp4|webm|mov)$/i.test(file.name);
+}
+
+async function verifyVideo(file: File) {
+  const tmp = path.join(os.tmpdir(), `stamp-${randomUUID()}.mp4`);
+  const script = path.resolve(process.cwd(), '..', 'worker', 'videostamp.py');
+  await writeFile(tmp, Buffer.from(await file.arrayBuffer()));
+  try {
+    const { stdout } = await execFileAsync('python', [script, 'verify', tmp], {
+      env: { ...process.env, PYTHONUTF8: '1' },
+      timeout: 60000,
+    });
+    const line = stdout.trim().split('\n').pop();
+    return JSON.parse(line || '{}');
+  } finally {
+    await unlink(tmp).catch(() => {});
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const form = await req.formData();
@@ -76,12 +104,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No image provided' }, { status: 400 });
     }
 
+    if (isVideo(file)) {
+      try {
+        return NextResponse.json(await verifyVideo(file));
+      } catch (err) {
+        console.error('[/api/verify] video', err);
+        return NextResponse.json({ tier: null, label: 'Could not fingerprint this video.' }, { status: 200 });
+      }
+    }
+
     // ── Forward to Python gateway for watermark decode + pHash ───────────────
     const gwForm = new FormData();
     gwForm.append('image', file);
 
     let gwResult: {
-      tier: 'A' | 'B' | null;
+      tier: 'A' | 'B' | 'C' | null;
       stampId?: string;
       bands?: string[];
       distance?: number;
