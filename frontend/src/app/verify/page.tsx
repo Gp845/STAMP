@@ -72,7 +72,7 @@ function ConfidenceBadge({ tier }: { tier: 'A' | 'B' | 'C' | null }) {
 
 function StampResultCard({ result }: { result: VerifyResult }) {
   const record = result.record;
-  const explorerBase = 'https://testnet.monadexplorer.com';
+  const explorerBase = process.env.NEXT_PUBLIC_EXPLORER_URL || '';
 
   return (
     <div className="stamp-animate w-full max-w-xl mx-auto">
@@ -117,16 +117,16 @@ function StampResultCard({ result }: { result: VerifyResult }) {
             <Row
               label="Agent Address"
               value={shortAddr(record.agent)}
-              link={`${explorerBase}/address/${record.agent}`}
+              link={explorerBase ? `${explorerBase}/address/${record.agent}` : undefined}
             />
             <Row
               label="Creator Address"
               value={shortAddr(record.creator)}
-              link={`${explorerBase}/address/${record.creator}`}
+              link={explorerBase ? `${explorerBase}/address/${record.creator}` : undefined}
             />
             <Row label="Kind" value={record.kind} />
             <Row label="Stamped At" value={fmtDate(record.timestamp)} />
-            <Row label="Block" value={`#${record.blockNumber.toLocaleString()}`} />
+            {record.blockNumber > 0 && <Row label="Block" value={`#${record.blockNumber.toLocaleString()}`} />}
             {result.distance !== undefined && (
               <Row label="pHash Distance" value={`${result.distance} (threshold ≤ 7)`} />
             )}

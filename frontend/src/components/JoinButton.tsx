@@ -37,6 +37,8 @@ export default function JoinButton({
   const now = useNow(!!sub);
   const [open, setOpen] = useState(false);
   const [refund, setRefund] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const alive = !!sub && remaining(sub, now) > 0;
   const spent = sub ? accrued(sub, now) : 0;
@@ -72,11 +74,20 @@ export default function JoinButton({
                 {elapsedSeconds(sub, now)}s billed · {formatMon(spent)} MON · {formatMon(left)} left
               </p>
               <button
-                onClick={() => {
-                  setRefund(cancelSub(handle));
-                  setOpen(true);
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  setError(null);
+                  try {
+                    setRefund(await cancelSub(handle));
+                    setOpen(true);
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'Could not stop');
+                  } finally {
+                    setBusy(false);
+                  }
                 }}
-                className="mt-3 h-8 px-3 rounded-full bg-[#0f0f0f] text-white text-sm font-medium"
+                className="mt-3 h-8 px-3 rounded-full bg-[#0f0f0f] text-white text-sm font-medium disabled:opacity-40"
               >
                 Stop and get the rest back
               </button>
@@ -86,12 +97,21 @@ export default function JoinButton({
               {CHOICES.map((c) => (
                 <button
                   key={c.label}
-                  onClick={() => {
-                    startSub(handle, monthly, c.seconds);
-                    setRefund(null);
-                    setOpen(true);
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true);
+                    setError(null);
+                    try {
+                      await startSub(handle, monthly, c.seconds);
+                      setRefund(null);
+                      setOpen(true);
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : 'Could not join');
+                    } finally {
+                      setBusy(false);
+                    }
                   }}
-                  className="h-8 px-3 rounded-full bg-[#0f0f0f] text-white text-sm font-medium"
+                  className="h-8 px-3 rounded-full bg-[#0f0f0f] text-white text-sm font-medium disabled:opacity-40"
                 >
                   Add {c.label}
                 </button>
@@ -100,6 +120,7 @@ export default function JoinButton({
           )}
 
           {refund !== null && <p className="mt-2 text-[#606060]">{formatMon(refund)} MON came back.</p>}
+          {error && <p className="mt-2 text-amber-800">{error}</p>}
         </div>
       )}
     </div>

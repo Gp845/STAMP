@@ -1,6 +1,6 @@
 import os
 import io
-import json
+import base64
 import random
 import hashlib
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
@@ -38,6 +38,7 @@ app.add_middleware(
 RPC_URL = os.getenv("RPC_URL", "https://testnet-rpc.monad.xyz")
 PRIVATE_KEY = os.getenv("GATEWAY_PRIVATE_KEY", "0x0")
 REGISTRY_ADDRESS = os.getenv("PROVENANCE_REGISTRY_ADDRESS", "0x0")
+JOB_ESCROW_ADDRESS = os.getenv("JOB_ESCROW_ADDRESS", "0x0")
 
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
 # For demo, load a generic ABI (just the attest function)
@@ -65,6 +66,39 @@ ATTEST_ABI = [
     }
 ]
 
+SETTLE_ABI = [
+    {
+        "inputs": [
+            {"internalType": "uint256", "name": "_jobId", "type": "uint256"},
+            {"internalType": "string", "name": "_stampId", "type": "string"},
+        ],
+        "name": "settleJob",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function",
+    }
+]
+
+def send(fn):
+    account = w3.eth.account.from_key(PRIVATE_KEY)
+    tx = fn.build_transaction({
+        'from': account.address,
+        'nonce': w3.eth.get_transaction_count(account.address),
+        'gas': 800000,
+        'gasPrice': w3.eth.gas_price,
+        'chainId': w3.eth.chain_id,
+    })
+    signed = w3.eth.account.sign_transaction(tx, private_key=PRIVATE_KEY)
+    raw = getattr(signed, 'raw_transaction', None)
+    if raw is None:
+        raw = signed.rawTransaction
+    sent = w3.eth.send_raw_transaction(raw)
+    receipt = w3.eth.wait_for_transaction_receipt(sent)
+    if receipt.status != 1:
+        raise RuntimeError('chain transaction reverted')
+    tx_hash = sent.hex()
+    return tx_hash if tx_hash.startswith('0x') else f'0x{tx_hash}'
+
 MAX_HAM = 7
 
 def _band_keys(h, n=8):
@@ -77,6 +111,8 @@ async def generate_and_stamp(
     prompt: str = Form(...),
     agent_address: str = Form(...),
     creator_address: str = Form(...),
+    model: str = Form('Mock Agent Gen'),
+    job_id: str = Form(''),
 ):
     """
     1. Calls AI Model to generate image
@@ -105,49 +141,74 @@ async def generate_and_stamp(
     h = imagehash.phash(stamped)
     bands = _band_keys(h, 8)
     
-    model_name = "Mock Agent Gen"
-
-    # Save image locally for demo
-    os.makedirs("public/stamped", exist_ok=True)
-    img_path = f"public/stamped/{stamp_id_hex}.png"
-    with open(img_path, "wb") as f:
-        f.write(img_bytes)
-
-    # 3. Anchor on Monad
+    model_name = model or "Mock Agent Gen"
     tx_hash = "0xmocktxhash"
+    settle_tx = None
     if PRIVATE_KEY != "0x0" and REGISTRY_ADDRESS != "0x0":
         try:
-            account = w3.eth.account.from_key(PRIVATE_KEY)
-            contract = w3.eth.contract(address=w3.to_checksum_address(REGISTRY_ADDRESS), abi=ATTEST_ABI)
-            
-            tx = contract.functions.attest(
+            registry = w3.eth.contract(address=w3.to_checksum_address(REGISTRY_ADDRESS), abi=ATTEST_ABI)
+            tx_hash = send(registry.functions.attest(
                 stamp_id_hex,
                 content_hash,
                 bands[0], bands[1], bands[2], bands[3],
                 bands[4], bands[5], bands[6], bands[7],
                 model_name,
                 w3.to_checksum_address(agent_address),
-                w3.to_checksum_address(creator_address)
-            ).build_transaction({
-                'from': account.address,
-                'nonce': w3.eth.get_transaction_count(account.address),
-                'gas': 500000,
-                'gasPrice': w3.eth.gas_price
-            })
-            
-            signed_tx = w3.eth.account.sign_transaction(tx, private_key=PRIVATE_KEY)
-            tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction).hex()
+                w3.to_checksum_address(creator_address),
+            ))
+            if job_id and JOB_ESCROW_ADDRESS != "0x0":
+                escrow = w3.eth.contract(address=w3.to_checksum_address(JOB_ESCROW_ADDRESS), abi=SETTLE_ABI)
+                settle_tx = send(escrow.functions.settleJob(int(job_id), stamp_id_hex))
         except Exception as e:
-            print(f"Error anchoring to Monad: {e}")
+            print(f"Error anchoring stamp: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
 
     return JSONResponse({
         "status": "success",
         "stampId": stamp_id_hex,
         "contentHash": content_hash,
         "txHash": tx_hash,
+        "settleTx": settle_tx,
         "bands": bands,
-        "imageUrl": f"/static/{stamp_id_hex}.png"
+        "image": base64.b64encode(img_bytes).decode(),
     })
+
+STAMPS_ABI = [
+    {
+        "inputs": [{"internalType": "string", "name": "id", "type": "string"}],
+        "name": "stamps",
+        "outputs": [
+            {"internalType": "string", "name": "contentHash", "type": "string"},
+            {"internalType": "string", "name": "model", "type": "string"},
+            {"internalType": "address", "name": "agent", "type": "address"},
+            {"internalType": "address", "name": "creator", "type": "address"},
+            {"internalType": "uint8", "name": "kind", "type": "uint8"},
+            {"internalType": "uint256", "name": "timestamp", "type": "uint256"},
+            {"internalType": "bool", "name": "revoked", "type": "bool"},
+        ],
+        "stateMutability": "view",
+        "type": "function",
+    }
+]
+
+@app.get("/cre/stamp/{stamp_id}")
+def cre_stamp(stamp_id: str):
+    """Registry row for the CRE workflow. The workflow calls this, then reads the same function onchain."""
+    if REGISTRY_ADDRESS in ("0x0", "0x0000000000000000000000000000000000000000"):
+        raise HTTPException(status_code=404, detail="registry address is not set")
+    registry = w3.eth.contract(address=w3.to_checksum_address(REGISTRY_ADDRESS), abi=STAMPS_ABI)
+    content_hash, model, agent, creator, kind, timestamp, revoked = registry.functions.stamps(stamp_id).call()
+    return {
+        "found": timestamp > 0 and not revoked,
+        "stampId": stamp_id,
+        "contentHash": content_hash,
+        "model": model,
+        "agent": agent,
+        "creator": creator,
+        "kind": "ATTESTED" if kind == 0 else "CLAIMED",
+        "timestamp": timestamp,
+        "revoked": revoked,
+    }
 
 @app.post("/verify")
 async def verify(image: UploadFile = File(...)):

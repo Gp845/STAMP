@@ -15,3 +15,6 @@ skills-lock.json
 
 # Throwaway re-encode used while checking video stamps.
 *.attacked.mp4
+
+# CRE compile output.
+.cre_build_tmp.*

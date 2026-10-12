@@ -1,0 +1,9 @@
+{
+  "name": "stamp-verify",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@chainlink/cre-sdk": "^1.0.0",
+    "viem": "^2.21.0"
+  }
+}

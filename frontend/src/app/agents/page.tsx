@@ -1,7 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { CHAIN } from '@/lib/contracts';
+import { connectWallet, loadChainAgents, REGISTRY_READY, registerAgent, type ChainAgent } from '@/lib/wallet';
 
 const AGENTS = [
   {
@@ -85,12 +87,108 @@ function shortAddr(addr: string) {
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 }
 
+function RegisterForm({ onRegistered }: { onRegistered: () => void }) {
+  const [account, setAccount] = useState<string | null>(null);
+  const [modelName, setModelName] = useState('');
+  const [weightsHash, setWeightsHash] = useState('');
+  const [status, setStatus] = useState<string | null>(null);
+  const [tx, setTx] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    setBusy(true);
+    setStatus(null);
+    setTx(null);
+    try {
+      const hash = await registerAgent(modelName.trim(), weightsHash.trim());
+      setTx(hash);
+      setStatus('Registered. Your wallet is now an agent.');
+      onRegistered();
+    } catch (err) {
+      const text = err instanceof Error ? err.message : (err as { message?: string })?.message;
+      setStatus(text || 'Registration failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="rounded-3xl border border-black/10 bg-[#fafafa] p-8">
+      <h2 className="text-2xl font-black text-[#0f0f0f] mb-2 text-center">Register as an Agent</h2>
+      <p className="text-zinc-500 mb-6 max-w-md mx-auto text-center text-sm">
+        Connect the wallet that should be paid. Staking 10 MON registers that address. Your model stays on your machine.
+      </p>
+      <div className="max-w-md mx-auto space-y-3">
+        <button
+          type="button"
+          onClick={async () => {
+            try {
+              setAccount(await connectWallet());
+              setStatus(null);
+            } catch (err) {
+              const text = err instanceof Error ? err.message : (err as { message?: string })?.message;
+              setStatus(text || 'Could not connect');
+            }
+          }}
+          className="w-full py-2.5 rounded-xl border border-black/10 bg-white text-sm font-medium"
+        >
+          {account ? `${account.slice(0, 6)}…${account.slice(-4)}` : 'Connect wallet'}
+        </button>
+        <input
+          value={modelName}
+          onChange={(e) => setModelName(e.target.value)}
+          placeholder="Model name"
+          className="w-full h-10 px-3 rounded-xl border border-black/10 bg-white text-sm"
+        />
+        <input
+          value={weightsHash}
+          onChange={(e) => setWeightsHash(e.target.value)}
+          placeholder="Weights hash (sha256:…)"
+          className="w-full h-10 px-3 rounded-xl border border-black/10 bg-white text-sm"
+        />
+        <button
+          type="button"
+          disabled={!REGISTRY_READY || busy || !modelName.trim() || !weightsHash.trim()}
+          onClick={submit}
+          className="w-full py-3 rounded-xl bg-[#0f0f0f] hover:bg-[#272727] disabled:opacity-40 text-white font-bold text-sm"
+        >
+          {busy ? 'Confirm in your wallet…' : 'Stake 10 MON and register'}
+        </button>
+        {!REGISTRY_READY && (
+          <p className="text-xs text-amber-700">
+            Set NEXT_PUBLIC_AGENT_REGISTRY_ADDRESS after the contract is deployed. The button stays off so funds are not sent to the zero address.
+          </p>
+        )}
+        {status && <p className="text-sm text-[#3f3f3f]">{status}</p>}
+        {tx && CHAIN.blockExplorers && (
+          <a
+            href={`${CHAIN.blockExplorers.default.url}/tx/${tx}`}
+            target="_blank"
+            rel="noreferrer"
+            className="block text-sm text-[#065fd4] hover:underline"
+          >
+            View transaction
+          </a>
+        )}
+        {tx && !CHAIN.blockExplorers && <p className="text-xs font-mono break-all text-zinc-500">{tx}</p>}
+      </div>
+    </div>
+  );
+}
+
 export default function AgentsPage() {
   const [filter, setFilter] = useState<'all' | 'active'>('active');
-  const [selected, setSelected] = useState<string | null>(null);
+  const [chainAgents, setChainAgents] = useState<ChainAgent[]>([]);
+
+  function refresh() {
+    loadChainAgents().then(setChainAgents).catch(() => setChainAgents([]));
+  }
+
+  useEffect(() => {
+    refresh();
+  }, []);
 
   const filtered = filter === 'active' ? AGENTS.filter((a) => a.isActive) : AGENTS;
-  const agent = selected ? AGENTS.find((a) => a.id === selected) : null;
 
   return (
     <div className="px-6 py-8">
@@ -178,13 +276,7 @@ export default function AgentsPage() {
 
                 {/* CTA */}
                 {a.isActive ? (
-                  <Link
-                    href="/dashboard"
-                    className="block w-full py-2 rounded-xl bg-[#0f0f0f] hover:bg-[#272727] text-white text-sm font-semibold text-center transition-all"
-                    onClick={() => setSelected(a.id)}
-                  >
-                    Commission this Agent
-                  </Link>
+                  <p className="text-center text-xs text-zinc-500">Sample listing</p>
                 ) : (
                   <button
                     disabled
@@ -198,32 +290,35 @@ export default function AgentsPage() {
           })}
         </div>
 
-        {/* Register as agent CTA */}
-        <div className="rounded-3xl border border-black/10 bg-[#fafafa] p-8 text-center">
-          <h2 className="text-2xl font-black text-[#0f0f0f] mb-3">Register as an Agent</h2>
-          <p className="text-zinc-500 mb-6 max-w-md mx-auto">
-            Operate an AI model, stake MON for accountability, and earn fees from every job. 
-            Every image you generate is automatically watermarked and provenance-tracked.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <a
-              href="https://testnet.monadexplorer.com"
-              target="_blank"
-              rel="noreferrer"
-              className="px-6 py-3 rounded-xl bg-[#0f0f0f] hover:bg-[#272727] text-white font-bold text-sm transition-all"
-            >
-              Register Agent (10 MON stake)
-            </a>
-            <a
-              href="https://github.com"
-              target="_blank"
-              rel="noreferrer"
-              className="px-6 py-3 rounded-xl border border-black/10 hover:border-black/20 bg-black/5 hover:bg-black/5 text-[#0f0f0f] font-semibold text-sm transition-all"
-            >
-              View Contract Docs ↗
-            </a>
+        {chainAgents.length > 0 && (
+          <div className="mb-8">
+            <h2 className="text-sm font-medium mb-3">Registered on Monad</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {chainAgents.map((a) => (
+                <div key={a.address} className="rounded-2xl border border-black/10 bg-[#fafafa] p-5">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                    <h3 className="font-bold">{a.modelName}</h3>
+                  </div>
+                  <p className="font-mono text-xs text-zinc-500">{shortAddr(a.address)}</p>
+                  <p className="mt-3 text-xs text-zinc-500 break-all">{a.weightsHash}</p>
+                  <div className="mt-3 flex justify-between text-xs text-zinc-600">
+                    <span>Staked {a.stake} MON</span>
+                    <span>Reputation {a.reputation}</span>
+                  </div>
+                  <Link
+                    href="/dashboard"
+                    className="mt-4 block w-full py-2 rounded-xl bg-[#0f0f0f] text-white text-sm font-semibold text-center"
+                  >
+                    Commission · 0.05 MON
+                  </Link>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
+
+        <RegisterForm onRegistered={refresh} />
       </div>
     </div>
   );

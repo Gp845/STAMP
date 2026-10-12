@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Memberships from '@/components/Memberships';
-import Image from 'next/image';
 import Link from 'next/link';
+import { createJob, loadChainAgents, type ChainAgent } from '@/lib/wallet';
 
 /* ── Demo data (replace with real wallet + Envio queries) ────────────────── */
 const DEMO_STAMPS = [
@@ -75,9 +75,53 @@ function ModelBadge({ model }: { model: string }) {
   );
 }
 
+const GATEWAY = process.env.NEXT_PUBLIC_GATEWAY_URL || 'http://localhost:8000';
+
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<'stamps' | 'jobs'>('stamps');
   const [newJobOpen, setNewJobOpen] = useState(false);
+  const [agents, setAgents] = useState<ChainAgent[]>([]);
+  const [agent, setAgent] = useState('');
+  const [prompt, setPrompt] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [made, setMade] = useState<{ stampId: string; image: string; prompt: string; model: string }[]>([]);
+
+  useEffect(() => {
+    if (!newJobOpen) return;
+    loadChainAgents().then(setAgents).catch(() => setAgents([]));
+  }, [newJobOpen]);
+
+  async function fundJob() {
+    const chosen = agents.find((item) => item.address === agent);
+    if (!chosen || !prompt.trim()) return;
+    setBusy(true);
+    setNote(null);
+    try {
+      setNote('Confirm the payment in your wallet.');
+      const job = await createJob(chosen.address, prompt.trim());
+      setNote('Paid. Stamping the image.');
+      const body = new FormData();
+      body.set('prompt', prompt.trim());
+      body.set('agent_address', chosen.address);
+      body.set('creator_address', job.from);
+      body.set('job_id', job.jobId);
+      body.set('model', chosen.modelName);
+      const res = await fetch(`${GATEWAY}/generate`, { method: 'POST', body });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.detail || 'The gateway could not stamp this job');
+      setMade((items) => [
+        { stampId: json.stampId, image: json.image, prompt: prompt.trim(), model: chosen.modelName },
+        ...items,
+      ]);
+      setNote(`Stamped #${json.stampId}. The agent was paid.`);
+      setPrompt('');
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : 'Could not fund this job');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const creatorAddr = '0x1f9090aaE28b8a3dCeaDf281B0F12828e676c326';
 
@@ -147,17 +191,29 @@ export default function DashboardPage() {
         {/* Stamps grid */}
         {activeTab === 'stamps' && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {DEMO_STAMPS.map((stamp) => (
+            {[...made.map((stamp) => ({
+              id: stamp.stampId,
+              stampId: stamp.stampId,
+              model: stamp.model,
+              prompt: stamp.prompt,
+              timestamp: Math.floor(Date.now() / 1000),
+              image: stamp.image,
+              txHash: '',
+            })), ...DEMO_STAMPS.map((stamp) => ({ ...stamp, image: '' }))].map((stamp) => (
               <div
                 key={stamp.id}
                 className="rounded-2xl border border-black/10 bg-[#fafafa] hover:bg-[#f2f2f2] transition-all overflow-hidden group"
               >
                 {/* Thumbnail placeholder */}
                 <div className="h-40 bg-zinc-900/50 flex items-center justify-center relative overflow-hidden">
-                  <div className="absolute inset-0 grid-bg opacity-30" />
+                  {stamp.image ? (
+                    <img src={`data:image/png;base64,${stamp.image}`} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                  ) : (
+                    <div className="absolute inset-0 grid-bg opacity-30" />
+                  )}
                   <div className="relative z-10 text-center px-4">
                     <p className="text-xs text-zinc-300 font-mono">#{stamp.stampId}</p>
-                    <p className="text-xs text-zinc-400 mt-1 line-clamp-2">{stamp.prompt}</p>
+                    {!stamp.image && <p className="text-xs text-zinc-400 mt-1 line-clamp-2">{stamp.prompt}</p>}
                   </div>
                   {/* Verified badge */}
                   <div className="absolute top-3 right-3 w-6 h-6 rounded-full bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center">
@@ -178,14 +234,16 @@ export default function DashboardPage() {
                   </p>
 
                   <div className="flex items-center justify-between">
-                    <a
-                      href={`https://testnet.monadexplorer.com/tx/${stamp.txHash}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-xs text-zinc-400 hover:text-[#3f3f3f] transition-colors"
-                    >
-                      View on Explorer ↗
-                    </a>
+                    {stamp.txHash && process.env.NEXT_PUBLIC_EXPLORER_URL ? (
+                      <a
+                        href={`${process.env.NEXT_PUBLIC_EXPLORER_URL}/tx/${stamp.txHash}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs text-zinc-400 hover:text-[#3f3f3f] transition-colors"
+                      >
+                        View on Explorer ↗
+                      </a>
+                    ) : <span />}
                     <Link
                       href={`/verify`}
                       className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
@@ -258,11 +316,17 @@ export default function DashboardPage() {
             <div className="space-y-4">
               <div>
                 <label className="block text-xs text-zinc-500 mb-2">Select Agent</label>
-                <select className="w-full bg-black/5 border border-black/10 rounded-xl px-4 py-2.5 text-sm text-[#0f0f0f] focus:outline-none focus:border-zinc-400">
-                  <option value="">Choose an AI agent...</option>
-                  <option>Gemini Flash 2.0 — 0.05 MON/job</option>
-                  <option>Stable Diffusion XL — 0.03 MON/job</option>
-                  <option>DALL-E 3 — 0.08 MON/job</option>
+                <select
+                  value={agent}
+                  onChange={(e) => setAgent(e.target.value)}
+                  className="w-full bg-black/5 border border-black/10 rounded-xl px-4 py-2.5 text-sm text-[#0f0f0f] focus:outline-none focus:border-zinc-400"
+                >
+                  <option value="">{agents.length ? 'Choose an AI agent...' : 'No agents registered yet'}</option>
+                  {agents.map((item) => (
+                    <option key={item.address} value={item.address}>
+                      {item.modelName} — 0.05 MON/job
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -270,6 +334,8 @@ export default function DashboardPage() {
                 <label className="block text-xs text-zinc-500 mb-2">Prompt</label>
                 <textarea
                   rows={4}
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
                   placeholder="Describe the image you want to generate..."
                   className="w-full bg-black/5 border border-black/10 rounded-xl px-4 py-2.5 text-sm text-[#0f0f0f] placeholder-zinc-600 resize-none focus:outline-none focus:border-zinc-400"
                 />
@@ -277,12 +343,18 @@ export default function DashboardPage() {
 
               <div className="rounded-xl border border-zinc-400/20 bg-black/5 p-3 text-xs text-zinc-400">
                 <span className="text-[#3f3f3f] font-medium">Payment flow: </span>
-                Your ETH is locked in JobEscrow → Agent generates + STAMP watermarks → Provenance written to Monad → Funds released.
+                0.05 MON is locked in JobEscrow. The gateway stamps the image, writes provenance, then pays the agent.
               </div>
 
-              <button className="w-full py-3 rounded-xl bg-[#0f0f0f] hover:bg-[#272727] text-white font-bold text-sm transition-all">
-                Fund Job (connect wallet first)
+              <button
+                type="button"
+                disabled={busy || !agent || !prompt.trim()}
+                onClick={fundJob}
+                className="w-full py-3 rounded-xl bg-[#0f0f0f] hover:bg-[#272727] disabled:opacity-40 text-white font-bold text-sm transition-all"
+              >
+                {busy ? 'Working…' : 'Fund job · 0.05 MON'}
               </button>
+              {note && <p className="text-sm text-[#3f3f3f]">{note}</p>}
             </div>
           </div>
         </div>

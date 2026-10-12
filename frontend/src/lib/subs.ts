@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { CREATORS } from './feed';
+import { SUBS_READY, cancelOnChain, subscribeOnChain } from './wallet';
 
 // 30-day month, same idea as StreamSub: owed = seconds * rate, capped at the deposit.
 export const MONTH_SECONDS = 30 * 24 * 60 * 60;
@@ -10,10 +12,12 @@ export interface Sub {
   ratePerSec: number;
   deposit: number;
   startedAt: number;
+  onChain?: boolean;
 }
 
-// shortcut: memberships live in localStorage, not in StreamSub. Upgrade when the contract is deployed and the app has a wallet.
+// The meter stays in localStorage so the page can tick every second. The deposit itself is StreamSub when that address is set.
 const KEY = 'stamp-subs';
+const WEI = BigInt(10) ** BigInt(18);
 const listeners = new Set<() => void>();
 
 function read(): Record<string, Sub> {
@@ -42,17 +46,33 @@ export function remaining(sub: Sub, now = Date.now()) {
   return sub.deposit - accrued(sub, now);
 }
 
-export function startSub(handle: string, monthly: number, seconds: number) {
+function creatorAddress(handle: string) {
+  const address = CREATORS.find((creator) => creator.handle === handle)?.address;
+  if (!address) throw new Error('This creator has no wallet address.');
+  return address;
+}
+
+function monToWei(mon: number) {
+  return (BigInt(Math.round(mon * 1_000_000)) * WEI) / BigInt(1_000_000);
+}
+
+export async function startSub(handle: string, monthly: number, seconds: number) {
   const ratePerSec = perSecond(monthly);
+  if (SUBS_READY) {
+    const rateWei = monToWei(monthly) / BigInt(MONTH_SECONDS);
+    if (rateWei < BigInt(1)) throw new Error('That price is too small to bill on chain.');
+    await subscribeOnChain(creatorAddress(handle), rateWei, rateWei * BigInt(seconds));
+  }
   const next = read();
-  next[handle] = { handle, ratePerSec, deposit: ratePerSec * seconds, startedAt: Date.now() };
+  next[handle] = { handle, ratePerSec, deposit: ratePerSec * seconds, startedAt: Date.now(), onChain: SUBS_READY };
   write(next);
 }
 
-export function cancelSub(handle: string, now = Date.now()) {
+export async function cancelSub(handle: string, now = Date.now()) {
   const next = read();
   const sub = next[handle];
   if (!sub) return 0;
+  if (sub.onChain) await cancelOnChain(creatorAddress(handle));
   const refund = remaining(sub, now);
   delete next[handle];
   write(next);

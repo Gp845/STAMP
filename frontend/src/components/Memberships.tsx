@@ -35,7 +35,11 @@ export default function Memberships() {
                 </div>
                 {left > 0 && (
                   <button
-                    onClick={() => cancelSub(sub.handle)}
+                    onClick={() => {
+                      cancelSub(sub.handle).catch((err) => {
+                        window.alert(err instanceof Error ? err.message : 'Could not stop');
+                      });
+                    }}
                     className="h-8 px-3 rounded-full bg-[#0f0f0f] text-white text-sm font-medium"
                   >
                     Stop

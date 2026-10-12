@@ -99,6 +99,11 @@ export const CONTRACTS = {
     ] as const,
   },
 
+  streamSub: {
+    address: (process.env.NEXT_PUBLIC_STREAM_SUB_ADDRESS ||
+      '0x0000000000000000000000000000000000000000') as `0x${string}`,
+  },
+
   provenanceRegistry: {
     address: (process.env.NEXT_PUBLIC_PROVENANCE_REGISTRY_ADDRESS ||
       '0x0000000000000000000000000000000000000000') as `0x${string}`,
@@ -159,3 +164,18 @@ export const MONAD_TESTNET = {
   },
   testnet: true,
 } as const;
+
+const rpc = process.env.NEXT_PUBLIC_RPC_URL || MONAD_TESTNET.rpcUrls.default.http[0];
+const local = Boolean(process.env.NEXT_PUBLIC_CHAIN_ID);
+
+export const CHAIN = {
+  id: Number(process.env.NEXT_PUBLIC_CHAIN_ID || MONAD_TESTNET.id),
+  name: process.env.NEXT_PUBLIC_CHAIN_NAME || MONAD_TESTNET.name,
+  nativeCurrency: MONAD_TESTNET.nativeCurrency,
+  rpcUrls: { default: { http: [rpc] } },
+  blockExplorers: process.env.NEXT_PUBLIC_EXPLORER_URL
+    ? { default: { name: 'Explorer', url: process.env.NEXT_PUBLIC_EXPLORER_URL } }
+    : local
+      ? undefined
+      : MONAD_TESTNET.blockExplorers,
+};

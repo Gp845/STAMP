@@ -75,6 +75,123 @@ async function queryEnvioById(stampId: string) {
   }
 }
 
+const ZERO = '0x0000000000000000000000000000000000000000';
+const STAMPS = 'a9481e91';
+
+function encodeString(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  const length = bytes.length.toString(16).padStart(64, '0');
+  let data = '';
+  for (const byte of bytes) data += byte.toString(16).padStart(2, '0');
+  return length + data + '0'.repeat((64 - (data.length % 64)) % 64);
+}
+
+function decodeString(data: string, offsetBytes: number) {
+  const start = 2 + offsetBytes * 2;
+  const length = Number.parseInt(data.slice(start, start + 64), 16);
+  const hex = data.slice(start + 64, start + 64 + length * 2);
+  const bytes = new Uint8Array(length);
+  for (let i = 0; i < length; i++) bytes[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return new TextDecoder().decode(bytes);
+}
+
+async function readOnChain(stampId: string) {
+  const rpc = process.env.NEXT_PUBLIC_RPC_URL;
+  const registry = process.env.NEXT_PUBLIC_PROVENANCE_REGISTRY_ADDRESS;
+  if (!rpc || !registry || registry === ZERO) return null;
+  const data = `0x${STAMPS}${(32).toString(16).padStart(64, '0')}${encodeString(stampId)}`;
+  try {
+    const res = await fetch(rpc, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'eth_call',
+        params: [{ to: registry, data }, 'latest'],
+      }),
+      signal: AbortSignal.timeout(5000),
+    });
+    const raw = (await res.json())?.result as string | undefined;
+    if (!raw || raw.length < 2 + 7 * 64) return null;
+    const word = (i: number) => BigInt(`0x${raw.slice(2 + i * 64, 2 + (i + 1) * 64)}`);
+    const timestamp = Number(word(5));
+    if (!timestamp) return null;
+    const addr = (i: number) => `0x${raw.slice(2 + i * 64 + 24, 2 + (i + 1) * 64)}`;
+    return {
+      id: stampId,
+      stampId,
+      contentHash: decodeString(raw, Number(word(0))),
+      model: decodeString(raw, Number(word(1))),
+      agent: addr(2),
+      creator: addr(3),
+      kind: word(4) === BigInt(0) ? 'ATTESTED' : 'CLAIMED',
+      timestamp,
+      txHash: '',
+      blockNumber: 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+type CreAnswer = {
+  match?: boolean;
+  record?: {
+    id: string;
+    stampId: string;
+    contentHash: string;
+    model: string;
+    agent: string;
+    creator: string;
+    kind: 'ATTESTED' | 'CLAIMED';
+    timestamp: number;
+    txHash: string;
+    blockNumber: number;
+  };
+};
+
+function parseCreResult(stdout: string): CreAnswer | null {
+  const marker = 'Workflow Simulation Result:';
+  const at = stdout.indexOf(marker);
+  if (at < 0) return null;
+  const line = stdout
+    .slice(at + marker.length)
+    .split('\n')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith('"') || part.startsWith('{'));
+  if (!line) return null;
+  const parsed = JSON.parse(line);
+  return typeof parsed === 'string' ? JSON.parse(parsed) : parsed;
+}
+
+function checkCreParser() {
+  const sample =
+    'Workflow Simulation Result:\n"{\\"match\\":true,\\"record\\":{\\"stampId\\":\\"abc\\"}}"\n';
+  const parsed = parseCreResult(sample);
+  if (!parsed?.match || parsed.record?.stampId !== 'abc') throw new Error('CRE result parser failed');
+}
+checkCreParser();
+
+async function askCre(stampId: string): Promise<CreAnswer | null> {
+  const cre = process.env.CRE_BIN || path.join(process.env.LOCALAPPDATA || '', 'Programs', 'cre', 'cre.exe');
+  const project = path.resolve(process.cwd(), '..', 'cre');
+  const payload = path.join(os.tmpdir(), `cre-${stampId}.json`);
+  await writeFile(payload, JSON.stringify({ stampId }));
+  try {
+    const { stdout } = await execFileAsync(
+      cre,
+      ['workflow', 'simulate', 'stamp-verify', '--target', 'staging-settings', '--non-interactive', '--trigger-index', '0', '--http-payload', payload],
+      { cwd: project, timeout: 45000 },
+    );
+    return parseCreResult(stdout);
+  } catch {
+    return null;
+  } finally {
+    await unlink(payload).catch(() => {});
+  }
+}
+
 function isVideo(file: File) {
   return file.type.startsWith('video/') || /\.(mp4|webm|mov)$/i.test(file.name);
 }
@@ -144,12 +261,22 @@ export async function POST(req: NextRequest) {
 
     // ── Tier A: exact stampId match ──────────────────────────────────────────
     if (gwResult.tier === 'A' && gwResult.stampId) {
-      const record = await queryEnvioById(gwResult.stampId);
+      const cre = await askCre(gwResult.stampId);
+      if (cre?.match && cre.record) {
+        return NextResponse.json({
+          tier: 'A',
+          stampId: gwResult.stampId,
+          record: cre.record,
+          cre: true,
+          label: 'Verified by Chainlink CRE: watermark matches the onchain stamp',
+        });
+      }
+      const record = (await queryEnvioById(gwResult.stampId)) ?? (await readOnChain(gwResult.stampId));
       return NextResponse.json({
         tier: 'A',
         stampId: gwResult.stampId,
         record,
-        label: record ? 'Verified: stamped content found on Monad' : 'Watermark decoded but stamp not yet indexed',
+        label: record ? 'Verified: stamped content found on chain' : 'Watermark decoded but stamp not yet indexed',
       });
     }
 
