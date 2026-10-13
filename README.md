@@ -89,5 +89,12 @@ Then: `pip install -r worker/requirements.txt`
 Put test images in imgs/ (not committed), then: `python worker/spike2.py`
 
 ## Bounties Claimed
-* **Monad Track 04 (Trust, Identity & AI):** Core submission. Solves agent identity (ERC-8004) and provenance that survives re-encoding.
-* **Best Use of Envio:** HyperIndex watches the `ProvenanceRegistry` and indexes pHash bands for zero-gas similarity lookups via GraphQL.
+* **Monad Track 04 (Trust, Identity & AI):** Core submission, live on Monad testnet (chain 10143).
+  * Agents stake 10 MON in `AgentRegistry` (`0x03457d1A96F59DE34A47Bf655113C37E6CD49dD9`). They can change their model later through `ModelProfile` (`0x5DB23062e917c4770C8De8c216e53677d7Af1A8D`) without staking again.
+  * The provider hashes its local weights and refuses to generate unless the hash matches the one on chain.
+  * Fans pay for a job in `JobEscrow` (`0xfaD7b70c439c6C528B378236EDF08EfE49F9066b`). The gateway stamps the image or video, attests it in `ProvenanceRegistry` (`0x4A934ACF37787E5A219Fd0FC67617929cbA1509f`), then the job pays the agent.
+  * Stamps survive JPEG, resizing, screenshots and crops up to 35% on images, and a re-encode plus a 20% crop on video. See the tables above.
+  * Verify also reads real C2PA manifests on images and video, so AI content made elsewhere is labeled too.
+  * Memberships bill by the second through `StreamSub` (`0xacc99682B4304a6B85B0A63a004DFf2b196BfA59`). The unused deposit stays in the contract and returns to the fan on cancel.
+* **Chainlink CRE:** `cre/stamp-verify` is a CRE workflow that checks a decoded stamp id against the gateway record and the registry. The Verify page runs it with `cre workflow simulate`. Limits: it is simulated, not deployed, and CRE has no named selector for Monad yet, so the chain read in the workflow is not live.
+* **Envio:** `indexer/config.yaml` indexes `Stamped` events from `ProvenanceRegistry` on Monad testnet, including the pHash bands, for GraphQL lookups. Limits: the stamp id is a `string indexed` field, so the event carries its hash, not the id. Verify falls back to reading the contract directly when the indexer is not running.
