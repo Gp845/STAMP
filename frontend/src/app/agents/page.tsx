@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { CHAIN } from '@/lib/contracts';
-import { connectWallet, loadChainAgents, REGISTRY_READY, registerAgent, type ChainAgent } from '@/lib/wallet';
+import { connectWallet, loadChainAgents, PROFILE_READY, REGISTRY_READY, registerAgent, updateModel, type ChainAgent } from '@/lib/wallet';
 
 const AGENTS = [
   {
@@ -94,15 +94,31 @@ function RegisterForm({ onRegistered }: { onRegistered: () => void }) {
   const [status, setStatus] = useState<string | null>(null);
   const [tx, setTx] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [mine, setMine] = useState(false);
+
+  async function connect() {
+    const connected = await connectWallet();
+    setAccount(connected);
+    const agents = await loadChainAgents();
+    const me = agents.find((agent) => agent.address.toLowerCase() === connected.toLowerCase());
+    setMine(Boolean(me));
+    if (me) {
+      setModelName(me.modelName);
+      setWeightsHash(me.weightsHash);
+    }
+  }
 
   async function submit() {
     setBusy(true);
     setStatus(null);
     setTx(null);
     try {
-      const hash = await registerAgent(modelName.trim(), weightsHash.trim());
+      const hash = mine
+        ? await updateModel(modelName.trim(), weightsHash.trim())
+        : await registerAgent(modelName.trim(), weightsHash.trim());
       setTx(hash);
-      setStatus('Registered. Your wallet is now an agent.');
+      setStatus(mine ? 'Model updated. This wallet is still the agent.' : 'Registered. Your wallet is now an agent.');
+      setMine(true);
       onRegistered();
     } catch (err) {
       const text = err instanceof Error ? err.message : (err as { message?: string })?.message;
@@ -113,18 +129,20 @@ function RegisterForm({ onRegistered }: { onRegistered: () => void }) {
   }
 
   return (
-    <div className="rounded-3xl border border-black/10 bg-[#fafafa] p-8">
-      <h2 className="text-2xl font-black text-[#0f0f0f] mb-2 text-center">Register as an Agent</h2>
-      <p className="text-zinc-500 mb-6 max-w-md mx-auto text-center text-sm">
-        Connect the wallet that should be paid. Staking 10 MON registers that address. Your model stays on your machine.
+    <div className="rounded-xl border border-black/10 bg-white p-6">
+      <h2 className="text-lg font-semibold mb-1">{mine ? 'Update your model' : 'Register an agent'}</h2>
+      <p className="text-[#606060] mb-6 max-w-md text-sm">
+        {mine
+          ? 'This wallet is already the agent. Saving changes the model name and the weights hash. The stake stays where it is.'
+          : 'Connect the wallet that should be paid. Staking 10 MON registers that address. Your model stays on your machine.'}
       </p>
       <div className="max-w-md mx-auto space-y-3">
         <button
           type="button"
           onClick={async () => {
             try {
-              setAccount(await connectWallet());
               setStatus(null);
+              await connect();
             } catch (err) {
               const text = err instanceof Error ? err.message : (err as { message?: string })?.message;
               setStatus(text || 'Could not connect');
@@ -148,12 +166,15 @@ function RegisterForm({ onRegistered }: { onRegistered: () => void }) {
         />
         <button
           type="button"
-          disabled={!REGISTRY_READY || busy || !modelName.trim() || !weightsHash.trim()}
+          disabled={(!mine && !REGISTRY_READY) || (mine && !PROFILE_READY) || busy || !modelName.trim() || !weightsHash.trim()}
           onClick={submit}
           className="w-full py-3 rounded-xl bg-[#0f0f0f] hover:bg-[#272727] disabled:opacity-40 text-white font-bold text-sm"
         >
-          {busy ? 'Confirm in your wallet…' : 'Stake 10 MON and register'}
+          {busy ? 'Confirm in your wallet…' : mine ? 'Save model' : 'Stake 10 MON and register'}
         </button>
+        {mine && !PROFILE_READY && (
+          <p className="text-xs text-amber-700">The model profile contract address is not set, so this wallet cannot change its model yet.</p>
+        )}
         {!REGISTRY_READY && (
           <p className="text-xs text-amber-700">
             Set NEXT_PUBLIC_AGENT_REGISTRY_ADDRESS after the contract is deployed. The button stays off so funds are not sent to the zero address.
@@ -194,15 +215,10 @@ export default function AgentsPage() {
     <div className="px-6 py-8">
       <div className="max-w-5xl mx-auto">
         {/* Header */}
-        <div className="text-center mb-12">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-black/10 bg-black/5 text-zinc-300 text-xs font-medium mb-6">
-            <span className="w-1.5 h-1.5 rounded-full bg-zinc-400" />
-            ERC-8004 Agent Registry
-          </div>
-          <h1 className="text-4xl sm:text-5xl font-black text-[#0f0f0f] mb-4">AI Agent Marketplace</h1>
-          <p className="text-zinc-400 max-w-lg mx-auto">
-            Browse verified agents, check their reputation scores, and commission AI-generated content — 
-            all stamped and anchored on Monad.
+        <div className="mb-8">
+          <h1 className="text-2xl font-semibold tracking-tight">Agents</h1>
+          <p className="mt-1 max-w-xl text-sm text-[#606060]">
+            Models listed by independent providers. Commission one from your studio, or stake 10 MON to add your own.
           </p>
         </div>
 
@@ -230,7 +246,7 @@ export default function AgentsPage() {
             return (
               <div
                 key={a.id}
-                className={`rounded-2xl border bg-[#fafafa] hover:bg-[#f2f2f2] transition-all p-5 ${c.ring} ${!a.isActive ? 'opacity-60' : ''}`}
+                className={`rounded-xl border border-black/10 bg-white p-5 ${!a.isActive ? 'opacity-60' : ''}`}
               >
                 {/* Top row */}
                 <div className="flex items-start justify-between mb-4">
@@ -295,7 +311,7 @@ export default function AgentsPage() {
             <h2 className="text-sm font-medium mb-3">Registered on Monad</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {chainAgents.map((a) => (
-                <div key={a.address} className="rounded-2xl border border-black/10 bg-[#fafafa] p-5">
+                <div key={a.address} className="rounded-xl border border-black/10 bg-white p-5">
                   <div className="flex items-center gap-2 mb-1">
                     <span className="w-2 h-2 rounded-full bg-emerald-500" />
                     <h3 className="font-bold">{a.modelName}</h3>

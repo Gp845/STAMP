@@ -196,6 +196,25 @@ function isVideo(file: File) {
   return file.type.startsWith('video/') || /\.(mp4|webm|mov)$/i.test(file.name);
 }
 
+async function readGateway(file: File) {
+  const gwForm = new FormData();
+  gwForm.append('image', file);
+  const gwRes = await fetch(`${GATEWAY_URL}/verify`, {
+    method: 'POST',
+    body: gwForm,
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!gwRes.ok) throw new Error(`Gateway ${gwRes.status}`);
+  return gwRes.json() as Promise<{
+    tier: 'A' | 'B' | 'C' | null;
+    stampId?: string;
+    bands?: string[];
+    distance?: number;
+    generator?: string;
+    label: string;
+  }>;
+}
+
 async function verifyVideo(file: File) {
   const tmp = path.join(os.tmpdir(), `stamp-${randomUUID()}.mp4`);
   const script = path.resolve(process.cwd(), '..', 'worker', 'videostamp.py');
@@ -222,18 +241,24 @@ export async function POST(req: NextRequest) {
     }
 
     if (isVideo(file)) {
+      let video: { tier: string | null; label: string } = { tier: null, label: 'No stamp record found' };
       try {
-        return NextResponse.json(await verifyVideo(file));
+        video = await verifyVideo(file);
       } catch (err) {
         console.error('[/api/verify] video', err);
-        return NextResponse.json({ tier: null, label: 'Could not fingerprint this video.' }, { status: 200 });
+        video = { tier: null, label: 'Could not fingerprint this video.' };
       }
+      if (video.tier) return NextResponse.json(video);
+      try {
+        const claim = await readGateway(file);
+        if (claim.tier === 'C') return NextResponse.json({ tier: 'C', label: claim.label });
+      } catch (err) {
+        console.error('[/api/verify] video c2pa', err);
+      }
+      return NextResponse.json(video);
     }
 
     // ── Forward to Python gateway for watermark decode + pHash ───────────────
-    const gwForm = new FormData();
-    gwForm.append('image', file);
-
     let gwResult: {
       tier: 'A' | 'B' | 'C' | null;
       stampId?: string;
@@ -243,13 +268,7 @@ export async function POST(req: NextRequest) {
     };
 
     try {
-      const gwRes = await fetch(`${GATEWAY_URL}/verify`, {
-        method: 'POST',
-        body: gwForm,
-        signal: AbortSignal.timeout(15000),
-      });
-      if (!gwRes.ok) throw new Error(`Gateway ${gwRes.status}`);
-      gwResult = await gwRes.json();
+      gwResult = await readGateway(file);
     } catch {
       // ── Demo mode: gateway offline — return a mock result for UI testing ──
       gwResult = {

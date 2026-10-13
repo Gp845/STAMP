@@ -1,12 +1,15 @@
 import Link from 'next/link';
+import { Suspense } from 'react';
 import { notFound } from 'next/navigation';
+import { connection } from 'next/server';
 import Avatar from '@/components/Avatar';
 import JoinButton from '@/components/JoinButton';
 import MemberGate from '@/components/MemberGate';
 import { originLabel } from '@/components/OriginBadge';
 import { Player, Thumbnail } from '@/components/PostCard';
 import { ShieldIcon } from '@/components/icons';
-import { formatCount, getCreator, getPost, POSTS, shortAddr } from '@/lib/feed';
+import { creatorFromAddress, formatCount, getCreator, getPost, POSTS, shortAddr } from '@/lib/feed';
+import { getStoredPost, listPosts, toFeedPost } from '@/lib/posts-db';
 
 const EXPLORER = 'https://testnet.monadexplorer.com';
 
@@ -29,12 +32,25 @@ function Row({ label, value, href }: { label: string; value: string; href?: stri
   );
 }
 
-export default async function PostPage({ params }: { params: Promise<{ id: string }> }) {
+export default function PostPage({ params }: { params: Promise<{ id: string }> }) {
+  return (
+    <Suspense fallback={<p className="px-6 py-8 text-sm text-[#606060]">Loading…</p>}>
+      <PostView params={params} />
+    </Suspense>
+  );
+}
+
+async function PostView({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const post = getPost(id);
+  let post = getPost(id);
+  if (!post) {
+    await connection();
+    const stored = getStoredPost(id);
+    post = stored ? toFeedPost(stored) : undefined;
+  }
   if (!post) notFound();
-  const creator = getCreator(post.creator)!;
-  const more = POSTS.filter((p) => p.id !== post.id);
+  const creator = getCreator(post.creator) ?? creatorFromAddress(post.creator);
+  const more = [...(getPost(id) ? [] : listPosts().map(toFeedPost)), ...POSTS].filter((p) => p.id !== post.id);
 
   return (
     <div className="max-w-[1700px] mx-auto px-6 py-6 flex flex-col xl:flex-row gap-6">
@@ -56,9 +72,11 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
               </Link>
               <p className="text-xs text-[#606060]">{formatCount(creator.subscribers)} members</p>
             </div>
-            <div className="ml-3">
-              <JoinButton handle={creator.handle} monthly={Number(creator.memberPrice)} />
-            </div>
+            {Number(creator.memberPrice) > 0 && (
+              <div className="ml-3">
+                <JoinButton handle={creator.handle} monthly={Number(creator.memberPrice)} />
+              </div>
+            )}
           </div>
           <Link
             href="/verify"
@@ -68,7 +86,7 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
           </Link>
         </div>
 
-        <div className="mt-4 rounded-xl bg-[#f2f2f2] p-3 text-sm">
+        <div className="mt-4 rounded-xl bg-white border border-black/10 p-4 text-sm">
           <p className="font-medium">
             {formatCount(post.views)} views · {post.postedAt}
           </p>
@@ -82,7 +100,7 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
           </div>
           <div className="divide-y divide-white/10">
             <Row label="Origin" value={originLabel(post)} />
-            <Row label="Stamp ID" value={`#${post.stampId}`} />
+            {post.stampId && <Row label="Stamp ID" value={`#${post.stampId}`} />}
             {post.agent && <Row label="Agent" value={shortAddr(post.agent)} href={`${EXPLORER}/address/${post.agent}`} />}
             <Row label="Creator" value={shortAddr(creator.address)} href={`${EXPLORER}/address/${creator.address}`} />
             {post.txHash ? (
@@ -96,7 +114,7 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
 
       <aside className="xl:w-[400px] shrink-0 flex flex-col gap-3">
         {more.map((p) => {
-          const c = getCreator(p.creator)!;
+          const c = getCreator(p.creator) ?? creatorFromAddress(p.creator);
           return (
             <Link key={p.id} href={`/post/${p.id}`} className="flex gap-2 group">
               <Thumbnail post={p} className="w-44 shrink-0 rounded-lg" />

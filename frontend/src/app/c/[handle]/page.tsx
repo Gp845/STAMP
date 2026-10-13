@@ -1,18 +1,34 @@
 import { notFound } from 'next/navigation';
+import { Suspense } from 'react';
+import { connection } from 'next/server';
 import Avatar from '@/components/Avatar';
 import JoinButton from '@/components/JoinButton';
 import PostCard from '@/components/PostCard';
-import { CREATORS, formatCount, getCreator, POSTS } from '@/lib/feed';
+import { CREATORS, creatorFromAddress, formatCount, getCreator, POSTS } from '@/lib/feed';
+import { listPosts, toFeedPost } from '@/lib/posts-db';
 
 export function generateStaticParams() {
   return CREATORS.map((c) => ({ handle: c.handle }));
 }
 
-export default async function ChannelPage({ params }: { params: Promise<{ handle: string }> }) {
+export default function ChannelPage({ params }: { params: Promise<{ handle: string }> }) {
+  return (
+    <Suspense fallback={<p className="px-6 py-8 text-sm text-[#606060]">Loading…</p>}>
+      <ChannelView params={params} />
+    </Suspense>
+  );
+}
+
+async function ChannelView({ params }: { params: Promise<{ handle: string }> }) {
   const { handle } = await params;
-  const creator = getCreator(handle);
+  await connection();
+  const known = getCreator(handle);
+  const uploaded = listPosts()
+    .filter((row) => row.creator === (known?.address ?? handle).toLowerCase())
+    .map(toFeedPost);
+  const creator = known ?? (uploaded.length ? creatorFromAddress(handle) : undefined);
   if (!creator) notFound();
-  const posts = POSTS.filter((p) => p.creator === creator.handle);
+  const posts = [...uploaded, ...POSTS.filter((p) => p.creator === creator.handle)];
   const aiCount = posts.filter((p) => p.origin === 'agent').length;
 
   const tiers = [
@@ -43,26 +59,32 @@ export default async function ChannelPage({ params }: { params: Promise<{ handle
             @{creator.handle} · {formatCount(creator.subscribers)} members · {posts.length} posts · {aiCount} AI-made
           </p>
           <p className="mt-2 text-sm text-[#3f3f3f] max-w-2xl">{creator.bio}</p>
-          <div className="mt-4">
-            <JoinButton handle={creator.handle} monthly={Number(creator.memberPrice)} large />
-          </div>
+          {Number(creator.memberPrice) > 0 && (
+            <div className="mt-4">
+              <JoinButton handle={creator.handle} monthly={Number(creator.memberPrice)} large />
+            </div>
+          )}
         </div>
       </div>
 
-      <h2 className="mt-10 mb-4 text-lg font-semibold">Membership</h2>
-      <div className="grid sm:grid-cols-2 gap-4 max-w-3xl">
-        {tiers.map((t) => (
-          <div key={t.name} className="rounded-xl bg-[#f7f7f7] border border-black/10 p-5">
-            <p className="text-sm text-[#606060]">{t.name}</p>
-            <p className="text-2xl font-bold mt-1">{t.price}</p>
-            <ul className="mt-3 space-y-1.5 text-sm text-[#3f3f3f]">
-              {t.perks.map((perk) => (
-                <li key={perk}>· {perk}</li>
-              ))}
-            </ul>
+      {Number(creator.memberPrice) > 0 && (
+        <>
+          <h2 className="mt-10 mb-4 text-lg font-semibold">Membership</h2>
+          <div className="grid sm:grid-cols-2 gap-4 max-w-3xl">
+            {tiers.map((t) => (
+              <div key={t.name} className="rounded-xl bg-white border border-black/10 p-5">
+                <p className="text-sm text-[#606060]">{t.name}</p>
+                <p className="text-2xl font-bold mt-1">{t.price}</p>
+                <ul className="mt-3 space-y-1.5 text-sm text-[#3f3f3f]">
+                  {t.perks.map((perk) => (
+                    <li key={perk}>· {perk}</li>
+                  ))}
+                </ul>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </>
+      )}
 
       <h2 className="mt-10 mb-4 text-lg font-semibold">Posts</h2>
       <div className="grid gap-x-4 gap-y-10 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 pb-12">

@@ -18,3 +18,13 @@ skills-lock.json
 
 # CRE compile output.
 .cre_build_tmp.*
+
+# Generated job images. The stamp stays on chain.
+gateway/stamps/
+
+# Local model weights. The registry stores only the hash.
+provider/weights.bin
+provider/test-model.pt
+
+# Creator uploads.
+frontend/data/

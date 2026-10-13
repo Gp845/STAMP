@@ -1,10 +1,14 @@
 import os
 import io
+import json
 import base64
 import random
 import hashlib
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
-from fastapi.responses import JSONResponse
+import urllib.parse
+import urllib.request
+import urllib.error
+from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from PIL import Image
@@ -41,6 +45,9 @@ REGISTRY_ADDRESS = os.getenv("PROVENANCE_REGISTRY_ADDRESS", "0x0")
 JOB_ESCROW_ADDRESS = os.getenv("JOB_ESCROW_ADDRESS", "0x0")
 
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
+PROVIDERS: dict[str, str] = {}
+STAMP_DIR = os.path.join(os.path.dirname(__file__), "stamps")
+os.makedirs(STAMP_DIR, exist_ok=True)
 # For demo, load a generic ABI (just the attest function)
 ATTEST_ABI = [
     {
@@ -120,9 +127,11 @@ async def generate_and_stamp(
     3. Anchors on Monad
     4. Returns Image URL & Stamp info
     """
-    # MOCK AI GENERATION
-    # In a real app, you would call OpenAI, Midjourney, etc.
-    img = Image.new('RGB', (1024, 1024), color = (random.randint(0,255), random.randint(0,255), random.randint(0,255)))
+    remote = provider_png(agent_address, prompt)
+    if remote:
+        img = Image.open(io.BytesIO(remote)).convert("RGB")
+    else:
+        img = Image.new('RGB', (1024, 1024), color = (random.randint(0,255), random.randint(0,255), random.randint(0,255)))
     
     stamp_id = random.getrandbits(40)
     stamp_id_hex = f"{stamp_id:010x}"
@@ -142,6 +151,18 @@ async def generate_and_stamp(
     bands = _band_keys(h, 8)
     
     model_name = model or "Mock Agent Gen"
+    with open(os.path.join(STAMP_DIR, f"{stamp_id_hex}.png"), "wb") as stamp_file:
+        stamp_file.write(img_bytes)
+    with open(os.path.join(STAMP_DIR, f"{stamp_id_hex}.json"), "w", encoding="utf-8") as meta_file:
+        json.dump({
+            "stampId": stamp_id_hex,
+            "prompt": prompt,
+            "model": model_name,
+            "agent": agent_address,
+            "creator": creator_address,
+            "jobId": job_id,
+            "contentHash": content_hash,
+        }, meta_file)
     tx_hash = "0xmocktxhash"
     settle_tx = None
     if PRIVATE_KEY != "0x0" and REGISTRY_ADDRESS != "0x0":
@@ -191,6 +212,57 @@ STAMPS_ABI = [
     }
 ]
 
+def provider_png(agent: str, prompt: str):
+    url = PROVIDERS.get(agent.lower())
+    if not url:
+        print(f"no provider online for {agent}")
+        return None
+    data = urllib.parse.urlencode({"prompt": prompt}).encode()
+    req = urllib.request.Request(url + "/generate", data=data)
+    try:
+        with urllib.request.urlopen(req, timeout=120) as res:
+            return res.read()
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", "replace")[:400]
+        raise HTTPException(status_code=502, detail=body or "provider refused the job") from exc
+
+
+@app.post("/providers")
+def register_provider(request: Request, agent: str = Form(...), url: str = Form(...)):
+    host = request.client.host if request.client else ""
+    if host not in ("127.0.0.1", "::1"):
+        raise HTTPException(status_code=403, detail="only a local provider can register")
+    if not (url.startswith("http://127.0.0.1:") or url.startswith("http://localhost:")):
+        raise HTTPException(status_code=400, detail="provider URL must be on this machine")
+    PROVIDERS[agent.lower()] = url.rstrip("/")
+    return {"ok": True}
+
+
+@app.get("/providers")
+def list_providers():
+    return PROVIDERS
+
+
+@app.get("/stamps")
+def list_stamps():
+    rows = []
+    for name in os.listdir(STAMP_DIR):
+        if not name.endswith(".json"):
+            continue
+        with open(os.path.join(STAMP_DIR, name), encoding="utf-8") as meta_file:
+            rows.append(json.load(meta_file))
+    rows.reverse()
+    return rows
+
+@app.get("/stamps/{stamp_id}.png")
+def stamp_png(stamp_id: str):
+    if not stamp_id.isalnum():
+        raise HTTPException(status_code=404, detail="unknown stamp")
+    path = os.path.join(STAMP_DIR, f"{stamp_id}.png")
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="image was not kept")
+    return FileResponse(path, media_type="image/png")
+
 @app.get("/cre/stamp/{stamp_id}")
 def cre_stamp(stamp_id: str):
     """Registry row for the CRE workflow. The workflow calls this, then reads the same function onchain."""
@@ -210,6 +282,54 @@ def cre_stamp(stamp_id: str):
         "revoked": revoked,
     }
 
+def _mime(data: bytes):
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"GIF87a") or data.startswith(b"GIF89a"):
+        return "image/gif"
+    if len(data) >= 12 and data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return "image/webp"
+    if len(data) >= 12 and data[4:8] == b"ftyp":
+        return "video/quicktime" if data[8:12] == b"qt  " else "video/mp4"
+    if data.startswith(b"\x1aE\xdf\xa3"):
+        return "video/webm"
+    return None
+
+
+def _c2pa(data: bytes):
+    """A parsed C2PA manifest, or None. The letters c2pa in the file are not a manifest."""
+    mime = _mime(data)
+    if not mime:
+        return None
+    try:
+        from c2pa import Reader
+        with Reader(mime, io.BytesIO(data)) as reader:
+            raw = reader.json()
+    except Exception:
+        return None
+    if not raw:
+        return None
+    store = json.loads(raw)
+    manifest = (store.get("manifests") or {}).get(store.get("active_manifest"))
+    if not manifest:
+        return None
+    generator = manifest.get("claim_generator") or "C2PA"
+    for assertion in manifest.get("assertions") or []:
+        if "actions" not in (assertion.get("label") or ""):
+            continue
+        actions = (assertion.get("data") or {}).get("actions") or []
+        if actions and actions[0].get("softwareAgent"):
+            generator = actions[0]["softwareAgent"]
+        break
+    issuer = (manifest.get("signature_info") or {}).get("issuer")
+    label = f"C2PA manifest from {generator}"
+    if issuer:
+        label += f", signed by {issuer}"
+    return {"generator": generator, "label": label}
+
+
 @app.post("/verify")
 async def verify(image: UploadFile = File(...)):
     """
@@ -217,12 +337,30 @@ async def verify(image: UploadFile = File(...)):
     Returns bands and stampId if found so the frontend can query Envio.
     """
     contents = await image.read()
-    img = Image.open(io.BytesIO(contents)).convert('RGB')
-    
+    claim = _c2pa(contents)
+    try:
+        img = Image.open(io.BytesIO(contents)).convert("RGB")
+    except Exception:
+        if claim:
+            return JSONResponse({
+                "tier": "C",
+                "stampId": None,
+                "bands": [],
+                "generator": claim["generator"],
+                "label": claim["label"],
+            })
+        return JSONResponse({
+            "tier": None,
+            "stampId": None,
+            "bands": [],
+            "generator": None,
+            "label": "No stamp detected",
+        })
+
     tier = None
     stamp_id_hex = None
     label = "No stamp detected"
-    
+
     # Tier A
     if HAS_TRUSTMARK:
         try:
@@ -233,24 +371,24 @@ async def verify(image: UploadFile = File(...)):
                 label = "Watermark decoded successfully"
         except Exception as e:
             print("Watermark decode failed:", e)
-            
+
     # Tier B
     h = imagehash.phash(img)
     bands = _band_keys(h, 8)
-    
-    # Tier C: External AI Detection (C2PA)
+
+    # Tier C only when a real manifest parses. Watermark still wins.
     if not tier:
-        # Check raw bytes for C2PA manifest signatures (common in DALL-E and Adobe AI)
-        if b"c2pa" in contents.lower() or b"xmp" in contents.lower():
+        if claim:
             tier = "C"
-            label = "External AI Detected (C2PA / XMP Metadata)"
+            label = claim["label"]
         else:
             tier = "B"
             label = "pHash bands calculated"
-            
+
     return JSONResponse({
         "tier": tier,
         "stampId": stamp_id_hex,
         "bands": bands,
-        "label": label
+        "generator": claim["generator"] if claim else None,
+        "label": label,
     })

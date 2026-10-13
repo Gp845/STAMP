@@ -94,9 +94,8 @@ function StampResultCard({ result }: { result: VerifyResult }) {
       {/* No match */}
       {!result.tier && (
         <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-6 text-center">
-          <div className="text-4xl mb-3">🔍</div>
           <p className="text-[#606060] text-sm">
-            This image has no STAMP record. It may be human-created, an unstamped AI image, or from
+            This file has no STAMP record. It may be human-created, an unstamped AI image, or from
             before STAMP was deployed.
           </p>
         </div>
@@ -258,17 +257,10 @@ export default function VerifyPage() {
     <div className="px-6 py-8">
       <div className="max-w-2xl mx-auto">
         {/* Header */}
-        <div className="text-center mb-12">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-black/10 bg-black/5 text-[#3f3f3f] text-xs font-medium mb-6">
-            <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-pulse" />
-            Powered by Monad + Envio
-          </div>
-          <h1 className="text-4xl sm:text-5xl font-black text-[#0f0f0f] mb-4">
-            Verify an Image
-          </h1>
-          <p className="text-[#606060] text-lg max-w-md mx-auto">
-            Drop any image — a screenshot, a re-post, a crop. We&apos;ll check if it carries 
-            a STAMP watermark and return its on-chain provenance.
+        <div className="mb-8">
+          <h1 className="text-2xl font-semibold tracking-tight">Verify</h1>
+          <p className="mt-1 text-sm text-[#606060]">
+            Drop a screenshot, repost, or crop. If it carries a stamp, this shows the model, the agent, and the creator.
           </p>
         </div>
 

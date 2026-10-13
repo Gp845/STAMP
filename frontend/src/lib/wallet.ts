@@ -4,6 +4,8 @@ const ZERO = '0x0000000000000000000000000000000000000000';
 const CHAIN_ID = `0x${CHAIN.id.toString(16)}`;
 // keccak256 selectors
 const REGISTER_SELECTOR = 'ff17aca4';
+const UPDATE_SELECTOR = '7aa632e1';
+const PROFILES_SELECTOR = 'bbe15627';
 const AGENTS_SELECTOR = 'fd66091e';
 const CREATE_JOB = '3c6a1c67';
 const SUBSCRIBE = '8de69284';
@@ -14,6 +16,7 @@ const TEN_MON = '0x8ac7230489e80000';
 const JOB_PRICE = '0xb1a2bc2ec50000';
 
 export const REGISTRY_READY = CONTRACTS.agentRegistry.address !== ZERO;
+export const PROFILE_READY = CONTRACTS.modelProfile.address !== ZERO;
 export const ESCROW_READY = CONTRACTS.jobEscrow.address !== ZERO;
 export const SUBS_READY = CONTRACTS.streamSub.address !== ZERO;
 
@@ -35,12 +38,12 @@ function encodeString(value: string) {
   return length + data + '0'.repeat((64 - (data.length % 64)) % 64);
 }
 
-function encodeRegister(modelName: string, weightsHash: string) {
+function encodeStrings(selector: string, modelName: string, weightsHash: string) {
   const first = encodeString(modelName);
   const second = encodeString(weightsHash);
   const offset1 = (64).toString(16).padStart(64, '0');
   const offset2 = (64 + first.length / 2).toString(16).padStart(64, '0');
-  return `0x${REGISTER_SELECTOR}${offset1}${offset2}${first}${second}`;
+  return `0x${selector}${offset1}${offset2}${first}${second}`;
 }
 
 function decodeString(data: string, offsetBytes: number) {
@@ -119,12 +122,40 @@ export async function registerAgent(modelName: string, weightsHash: string) {
         from,
         to: CONTRACTS.agentRegistry.address,
         value: TEN_MON,
-        data: encodeRegister(modelName, weightsHash),
+        data: encodeStrings(REGISTER_SELECTOR, modelName, weightsHash),
       },
     ],
   })) as string;
   await waitReceipt(hash);
   return hash;
+}
+
+export async function updateModel(modelName: string, weightsHash: string) {
+  if (!PROFILE_READY) throw new Error('The model profile contract address is not set.');
+  const from = await connectWallet();
+  const hash = (await provider().request({
+    method: 'eth_sendTransaction',
+    params: [{
+      from,
+      to: CONTRACTS.modelProfile.address,
+      data: encodeStrings(UPDATE_SELECTOR, modelName, weightsHash),
+    }],
+  })) as string;
+  await waitReceipt(hash);
+  return hash;
+}
+
+async function savedProfile(address: string) {
+  if (!PROFILE_READY) return null;
+  const data = `0x${PROFILES_SELECTOR}${address.slice(2).padStart(64, '0')}`;
+  const raw = (await rpc('eth_call', [{ to: CONTRACTS.modelProfile.address, data }, 'latest'])) as string;
+  if (!raw || raw === '0x') return null;
+  const word = (i: number) => BigInt(`0x${raw.slice(2 + i * 64, 2 + (i + 1) * 64)}`);
+  if (word(2) !== BigInt(1)) return null;
+  return {
+    modelName: decodeString(raw, Number(word(0))),
+    weightsHash: decodeString(raw, Number(word(1))),
+  };
 }
 
 export async function createJob(agent: string, prompt: string) {
@@ -175,27 +206,150 @@ async function rpc(method: string, params: unknown[]) {
   return json.result;
 }
 
+const LOG_SPAN = 100;
+// shortcut: Monad's public RPC rejects eth_getLogs wider than 100 blocks, raise the span if that limit changes.
+const REGISTRY_BIRTH = CHAIN.id === 10143 ? 70443261 : 0;
+const AGENT_CACHE = 'stamp-agent-scan';
+
+async function registrationAddresses(): Promise<string[]> {
+  const latest = Number(await rpc('eth_blockNumber', []));
+  let from = REGISTRY_BIRTH;
+  let known: string[] = [];
+  try {
+    const saved = JSON.parse(localStorage.getItem(AGENT_CACHE) || '');
+    if (saved?.chain === CHAIN.id && saved.block >= REGISTRY_BIRTH && saved.block <= latest) {
+      from = saved.block + 1;
+      known = saved.addresses;
+    }
+  } catch {
+    known = [];
+  }
+  const ranges: [number, number][] = [];
+  for (let start = from; start <= latest; start += LOG_SPAN) {
+    ranges.push([start, Math.min(latest, start + LOG_SPAN - 1)]);
+  }
+  const logs: { topics: string[] }[] = [];
+  for (let i = 0; i < ranges.length; i += 8) {
+    const batch = await Promise.all(
+      ranges.slice(i, i + 8).map(([start, end]) =>
+        rpc('eth_getLogs', [
+          {
+            address: CONTRACTS.agentRegistry.address,
+            fromBlock: `0x${start.toString(16)}`,
+            toBlock: `0x${end.toString(16)}`,
+            topics: [REGISTERED_TOPIC],
+          },
+        ]),
+      ),
+    );
+    for (const part of batch) logs.push(...(part as { topics: string[] }[]));
+  }
+  const addresses = [...new Set([...known, ...logs.map((log) => `0x${log.topics[1].slice(26)}`)])];
+  localStorage.setItem(AGENT_CACHE, JSON.stringify({ chain: CHAIN.id, block: latest, addresses }));
+  return addresses;
+}
+
 export async function loadChainAgents(): Promise<ChainAgent[]> {
   if (!REGISTRY_READY) return [];
-  const logs = (await rpc('eth_getLogs', [
-    { address: CONTRACTS.agentRegistry.address, fromBlock: '0x0', topics: [REGISTERED_TOPIC] },
-  ])) as { topics: string[] }[];
-
-  const addresses = [...new Set(logs.map((log) => `0x${log.topics[1].slice(26)}`))];
+  const addresses = await registrationAddresses();
   return Promise.all(
     addresses.map(async (address) => {
       const data = `0x${AGENTS_SELECTOR}${address.slice(2).padStart(64, '0')}`;
       const raw = (await rpc('eth_call', [{ to: CONTRACTS.agentRegistry.address, data }, 'latest'])) as string;
       const word = (i: number) => BigInt(`0x${raw.slice(2 + i * 64, 2 + (i + 1) * 64)}`);
       const active = word(4) === BigInt(1);
+      const profile = await savedProfile(address);
       return {
         address,
-        modelName: decodeString(raw, Number(word(0))),
-        weightsHash: decodeString(raw, Number(word(1))),
+        modelName: profile?.modelName || decodeString(raw, Number(word(0))),
+        weightsHash: profile?.weightsHash || decodeString(raw, Number(word(1))),
         stake: formatMon(word(2)),
         reputation: Number(word(3)),
         isActive: active,
       };
     }),
   ).then((agents) => agents.filter((agent) => agent.isActive));
+}
+
+const JOBS_SELECTOR = '180aedf3';
+const JOB_COUNTER = '50355d76';
+const SETTLED_TOPIC = '0x98b83067fc4f0325071247db516cc8f27364e617a56f33fa1f90a9bd6175a769';
+const JOB_STATUS = ['Open', 'Active', 'Completed', 'Disputed', 'Refunded'];
+
+export interface ChainJob {
+  id: string;
+  creator: string;
+  agent: string;
+  payment: string;
+  status: string;
+  prompt: string;
+  stampId: string;
+}
+
+async function settledStamps(): Promise<Record<string, string>> {
+  const latest = Number(await rpc('eth_blockNumber', []));
+  let from = REGISTRY_BIRTH;
+  let known: Record<string, string> = {};
+  try {
+    const saved = JSON.parse(localStorage.getItem('stamp-job-scan') || '');
+    if (saved?.chain === CHAIN.id && saved.block >= REGISTRY_BIRTH && saved.block <= latest) {
+      from = saved.block + 1;
+      known = saved.stamps;
+    }
+  } catch {
+    known = {};
+  }
+  const ranges: [number, number][] = [];
+  for (let start = from; start <= latest; start += LOG_SPAN) {
+    ranges.push([start, Math.min(latest, start + LOG_SPAN - 1)]);
+  }
+  const stamps = { ...known };
+  for (let i = 0; i < ranges.length; i += 8) {
+    const batch = await Promise.all(
+      ranges.slice(i, i + 8).map(([start, end]) =>
+        rpc('eth_getLogs', [
+          {
+            address: CONTRACTS.jobEscrow.address,
+            fromBlock: `0x${start.toString(16)}`,
+            toBlock: `0x${end.toString(16)}`,
+            topics: [SETTLED_TOPIC],
+          },
+        ]),
+      ),
+    );
+    for (const part of batch) {
+      for (const log of part as { topics: string[]; data: string }[]) {
+        stamps[BigInt(log.topics[1]).toString()] = decodeString(log.data, 32);
+      }
+    }
+  }
+  localStorage.setItem('stamp-job-scan', JSON.stringify({ chain: CHAIN.id, block: latest, stamps }));
+  return stamps;
+}
+
+export async function loadChainJobs(): Promise<ChainJob[]> {
+  if (!ESCROW_READY) return [];
+  const countHex = (await rpc('eth_call', [
+    { to: CONTRACTS.jobEscrow.address, data: `0x${JOB_COUNTER}` },
+    'latest',
+  ])) as string;
+  const count = Number(BigInt(countHex));
+  const stamps = await settledStamps();
+  const jobs: ChainJob[] = [];
+  for (let i = 0; i < count; i++) {
+    const data = `0x${JOBS_SELECTOR}${i.toString(16).padStart(64, '0')}`;
+    const raw = (await rpc('eth_call', [{ to: CONTRACTS.jobEscrow.address, data }, 'latest'])) as string;
+    const word = (n: number) => BigInt(`0x${raw.slice(2 + n * 64, 2 + (n + 1) * 64)}`);
+    const status = Number(word(3));
+    jobs.push({
+      id: String(i),
+      creator: `0x${raw.slice(26, 66)}`,
+      agent: `0x${raw.slice(2 + 64 + 24, 2 + 128)}`,
+      payment: formatMon(word(2)),
+      status: JOB_STATUS[status] || String(status),
+      prompt: decodeString(raw, Number(word(4))),
+      stampId: stamps[String(i)] || '',
+    });
+  }
+  return jobs.reverse();
 }

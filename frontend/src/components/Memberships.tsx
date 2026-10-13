@@ -11,7 +11,7 @@ export default function Memberships() {
   const now = useNow(list.length > 0);
 
   return (
-    <section className="mb-8 rounded-2xl border border-black/10 bg-[#f7f7f7] p-5">
+    <section className="mb-8 rounded-xl border border-black/10 bg-white p-5">
       <h2 className="font-semibold">Memberships</h2>
       <p className="mt-1 text-sm text-[#606060]">Billed every second. Stopping returns whatever is left.</p>
       {list.length === 0 ? (

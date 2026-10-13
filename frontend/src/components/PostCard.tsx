@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { formatCount, getCreator, type Post } from '@/lib/feed';
+import { creatorFromAddress, formatCount, getCreator, type Post } from '@/lib/feed';
 import Avatar from './Avatar';
 import OriginBadge from './OriginBadge';
 import { LockIcon } from './icons';
@@ -10,6 +10,7 @@ export function Thumbnail({ post, className = '' }: { post: Post; className?: st
       className={`relative aspect-video rounded-xl overflow-hidden ${className}`}
       style={{ background: `linear-gradient(135deg, ${post.colors[0]}, ${post.colors[1]})` }}
     >
+      {post.imageUrl && <img src={post.imageUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />}
       <div className="absolute top-2 left-2">
         <OriginBadge post={post} />
       </div>
@@ -25,9 +26,11 @@ export function Thumbnail({ post, className = '' }: { post: Post; className?: st
           </span>
         </span>
       )}
-      <span className={`absolute bottom-2 px-1.5 py-0.5 rounded bg-black/80 font-mono text-[11px] text-white ${post.duration ? 'left-2' : 'right-2'}`}>
-        #{post.stampId.slice(0, 8)}
-      </span>
+      {post.stampId && (
+        <span className={`absolute bottom-2 px-1.5 py-0.5 rounded bg-black/80 font-mono text-[11px] text-white ${post.duration ? 'left-2' : 'right-2'}`}>
+          #{post.stampId.slice(0, 8)}
+        </span>
+      )}
       {post.duration && (
         <span className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded bg-black/80 text-[11px] font-medium text-white">
           {post.duration}
@@ -45,7 +48,7 @@ export function Player({ post, className = '' }: { post: Post; className?: strin
 }
 
 export default function PostCard({ post, hideAvatar = false }: { post: Post; hideAvatar?: boolean }) {
-  const creator = getCreator(post.creator)!;
+  const creator = getCreator(post.creator) ?? creatorFromAddress(post.creator);
 
   return (
     <div className="flex flex-col gap-3">

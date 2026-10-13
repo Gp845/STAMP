@@ -9,3 +9,4 @@ trustmark
 invisible-watermark
 opencv-python
 numpy
+c2pa-python

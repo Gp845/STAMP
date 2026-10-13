@@ -41,6 +41,11 @@ export const CONTRACTS = {
     ] as const,
   },
 
+  modelProfile: {
+    address: (process.env.NEXT_PUBLIC_MODEL_PROFILE_ADDRESS ||
+      '0x0000000000000000000000000000000000000000') as `0x${string}`,
+  },
+
   jobEscrow: {
     address: (process.env.NEXT_PUBLIC_JOB_ESCROW_ADDRESS ||
       '0x0000000000000000000000000000000000000000') as `0x${string}`,

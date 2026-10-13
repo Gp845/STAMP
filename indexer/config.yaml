@@ -4,11 +4,11 @@ networks:
   - id: 10143
     rpc_config:
       url: https://testnet-rpc.monad.xyz
-    start_block: 0
+    start_block: 70443261
     contracts:
       - name: ProvenanceRegistry
         address:
-          - "0x0000000000000000000000000000000000000000" # Replace with actual deployed address
+          - "0x4A934ACF37787E5A219Fd0FC67617929cbA1509f"
         handler: src/EventHandlers.ts
         events:
           - event: Stamped(string indexed id, string contentHash, string band0, string band1, string band2, string band3, string band4, string band5, string band6, string band7, string model, address indexed agent, address indexed creator, uint8 kind)

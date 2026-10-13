@@ -28,6 +28,7 @@ export interface Post {
   description: string;
   videoSrc?: string;
   duration?: string;
+  imageUrl?: string;
 }
 
 export const CREATORS: Creator[] = [
@@ -210,4 +211,36 @@ export function formatCount(n: number) {
 
 export function shortAddr(addr: string) {
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+}
+
+export function uploadedPost(row: { id: string; title: string; creator: string; createdAt: number; mime: string; c2pa?: string | null }): Post {
+  const video = row.mime.startsWith('video/');
+  const url = `/api/posts/${row.id}/image`;
+  return {
+    id: row.id,
+    title: row.title,
+    creator: row.creator,
+    origin: row.c2pa ? 'external' : 'human',
+    model: row.c2pa || undefined,
+    stampId: '',
+    views: 0,
+    postedAt: new Date(row.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+    colors: ['#d6d3d1', '#78716c'],
+    membersOnly: false,
+    description: '',
+    imageUrl: video ? undefined : url,
+    videoSrc: video ? url : undefined,
+  };
+}
+
+export function creatorFromAddress(address: string): Creator {
+  return {
+    handle: address.toLowerCase(),
+    name: shortAddr(address),
+    address,
+    colors: ['#d6d3d1', '#78716c'],
+    subscribers: 0,
+    memberPrice: '0',
+    bio: 'Uploaded from this wallet.',
+  };
 }

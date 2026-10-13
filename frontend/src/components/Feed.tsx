@@ -1,8 +1,8 @@
 'use client';
 
 import { useSearchParams } from 'next/navigation';
-import { useState } from 'react';
-import { getCreator, POSTS, type Post } from '@/lib/feed';
+import { useEffect, useState } from 'react';
+import { getCreator, POSTS, uploadedPost, type Post } from '@/lib/feed';
 import PostCard from './PostCard';
 
 const CHIPS: { label: string; match: (p: Post) => boolean }[] = [
@@ -20,9 +20,19 @@ const CHIPS: { label: string; match: (p: Post) => boolean }[] = [
 export default function Feed() {
   const q = (useSearchParams().get('q') ?? '').toLowerCase();
   const [chip, setChip] = useState('All');
+  const [uploaded, setUploaded] = useState<Post[]>([]);
+
+  useEffect(() => {
+    fetch('/api/posts')
+      .then((res) => res.json())
+      .then((rows: { id: string; title: string; creator: string; createdAt: number; mime: string }[]) => {
+        setUploaded(rows.map(uploadedPost));
+      })
+      .catch(() => setUploaded([]));
+  }, []);
 
   const active = CHIPS.find((c) => c.label === chip)!;
-  const posts = POSTS.filter(active.match).filter((p) => {
+  const posts = [...uploaded, ...POSTS].filter(active.match).filter((p) => {
     if (!q) return true;
     const creator = getCreator(p.creator);
     return [p.title, p.model, creator?.name, creator?.handle].some((s) => s?.toLowerCase().includes(q));
@@ -30,7 +40,7 @@ export default function Feed() {
 
   return (
     <div>
-      <div className="sticky top-14 z-30 bg-white px-6 py-3 flex gap-3 overflow-x-auto no-scrollbar">
+      <div className="sticky top-14 z-30 bg-[#f6f7f8]/95 backdrop-blur px-6 py-3 flex gap-2 overflow-x-auto no-scrollbar">
         {CHIPS.map((c) => (
           <button
             key={c.label}

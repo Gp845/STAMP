@@ -44,11 +44,11 @@ function TopBar({ onMenu }: { onMenu: () => void }) {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search creators, posts, models"
-          className="flex-1 h-10 px-4 rounded-l-full bg-[#f8f8f8] border border-[#ccc] text-[15px] placeholder-[#606060] focus:outline-none focus:border-[#836EF9]"
+          className="flex-1 h-10 px-4 rounded-l-full bg-white border border-black/15 text-[15px] placeholder-[#606060] focus:outline-none focus:border-[#0f0f0f]"
         />
         <button
           type="submit"
-          className="h-10 w-16 rounded-r-full bg-[#f8f8f8] border border-l-0 border-[#ccc] flex items-center justify-center hover:bg-[#eee]"
+          className="h-10 w-16 rounded-r-full bg-white border border-l-0 border-black/15 flex items-center justify-center hover:bg-[#f6f7f8]"
           aria-label="Search"
         >
           <SearchIcon className="w-5 h-5" />
@@ -63,7 +63,7 @@ function TopBar({ onMenu }: { onMenu: () => void }) {
           <ShieldIcon className="w-5 h-5" /> Verify
         </Link>
         <Link
-          href="/dashboard"
+          href="/upload"
           className="flex items-center gap-1.5 h-9 px-3.5 rounded-full bg-[#f2f2f2] hover:bg-[#e5e5e5] text-sm font-medium"
         >
           <PlusIcon className="w-5 h-5" /> Create
@@ -114,7 +114,7 @@ function Sidebar({ mini, onNavigate }: { mini: boolean; onNavigate?: () => void 
       ))}
 
       <hr className="my-3 border-black/10" />
-      <p className="px-3 pb-1 text-base font-medium">Subscriptions</p>
+      <p className="px-3 pb-2 text-[11px] font-medium uppercase tracking-wide text-[#606060]">Subscriptions</p>
       {CREATORS.map((c) => (
         <Link
           key={c.handle}
