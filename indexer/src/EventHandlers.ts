@@ -1,9 +1,6 @@
-import {
-  ProvenanceRegistry,
-  ProvenanceRegistry_Stamped,
-} from "generated";
+import { indexer, type ProvenanceRegistry_Stamped } from "envio";
 
-ProvenanceRegistry.Stamped.handler(async ({ event, context }) => {
+indexer.onEvent({ contract: "ProvenanceRegistry", event: "Stamped" }, async ({ event, context }) => {
   const entity: ProvenanceRegistry_Stamped = {
     id: `${event.chainId}_${event.block.number}_${event.logIndex}`,
     stampId: event.params.id,

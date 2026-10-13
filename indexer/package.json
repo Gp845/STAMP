@@ -1,11 +1,12 @@
 {
   "name": "stamp-indexer",
   "version": "1.0.0",
+  "type": "module",
   "description": "Envio indexer for STAMP",
   "scripts": {
     "dev": "envio dev"
   },
   "dependencies": {
-    "envio": "latest"
+    "envio": "3.14.0"
   }
 }

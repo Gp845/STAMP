@@ -78,7 +78,9 @@ Cost: PSNR drops from 43.4 dB to 37.8 dB. The four demo clips were stamped at 1.
 - [x] **Agent Identity Registry (ERC-8004):** Completed (`contracts/src/AgentRegistry.sol`)
 - [x] **Provenance Registry Contract:** Completed (`contracts/src/ProvenanceRegistry.sol`)
 - [x] **JobEscrow Payment System:** Completed (`contracts/src/JobEscrow.sol`)
-- [x] **Envio Indexer & Gateway Connection:** Completed
+- [x] **Gateway, Provider & Frontend:** Running on a Linux VM. Generate + verify round trip checked for image and video.
+- [x] **Envio Indexer:** Envio 3, running on the same VM (`envio dev`, Docker, HyperSync with the RPC as fallback). HyperSync needs `ENVIO_API_TOKEN` in `indexer/.env`. Not on Envio Cloud.
+- [ ] **Chainlink CRE:** Simulated only (see below). Deploy access requested, not granted yet.
 - [x] **Verify Page UI & Browser Login:** Completed
 
 
@@ -87,6 +89,18 @@ Cost: PSNR drops from 43.4 dB to 37.8 dB. The four demo clips were stamped at 1.
 Python 3.10. On Windows run this first in PowerShell: `$env:PYTHONUTF8="1"`
 Then: `pip install -r worker/requirements.txt`
 Put test images in imgs/ (not committed), then: `python worker/spike2.py`
+
+## Run the full stack (Linux)
+
+Needs Python 3.10+, Node 24 and the untracked files (`.env` files, `provider/test-model.pt`).
+```
+python3 -m venv .venv
+.venv/bin/pip install torch --index-url https://download.pytorch.org/whl/cpu
+.venv/bin/pip install -r gateway/requirements.txt -r worker/requirements.txt -r provider/requirements.txt
+(cd frontend && npm ci && npx next build)
+./start.sh
+```
+This starts the gateway (:8000), provider (:8001) and frontend (:3000). Logs are written to `logs/`. Only the frontend needs a public URL, because the browser reaches the gateway through `/gw`. For example: `cloudflared tunnel --url http://127.0.0.1:3000`.
 
 ## Bounties Claimed
 * **Monad Track 04 (Trust, Identity & AI):** Core submission, live on Monad testnet (chain 10143).

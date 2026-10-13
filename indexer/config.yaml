@@ -1,9 +1,16 @@
 name: STAMP_Indexer
 description: Indexer for STAMP Provenance Registry on Monad Testnet
-networks:
+field_selection:
+  transaction_fields:
+    - hash
+chains:
   - id: 10143
-    rpc_config:
-      url: https://testnet-rpc.monad.xyz
+    rpc:
+      - url: https://testnet-rpc.monad.xyz
+        for: fallback
+        # Monad's public RPC rejects eth_getLogs over 100 blocks. HyperSync needs ENVIO_API_TOKEN in indexer/.env.
+        initial_block_interval: 100
+        interval_ceiling: 100
     start_block: 70443261
     contracts:
       - name: ProvenanceRegistry

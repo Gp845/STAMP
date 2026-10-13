@@ -28,3 +28,6 @@ provider/test-model.pt
 
 # Creator uploads.
 frontend/data/
+
+# start.sh output.
+logs/

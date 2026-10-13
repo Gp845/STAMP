@@ -26,7 +26,7 @@ function ModelBadge({ model }: { model: string }) {
   );
 }
 
-const GATEWAY = process.env.NEXT_PUBLIC_GATEWAY_URL || 'http://localhost:8000';
+const GATEWAY = '/gw';
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<'stamps' | 'jobs'>('stamps');

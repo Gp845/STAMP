@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+python-multipart
+web3
+pillow
+torch
+imageio-ffmpeg
