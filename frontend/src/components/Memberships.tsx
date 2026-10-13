@@ -24,9 +24,9 @@ export default function Memberships() {
             return (
               <li key={sub.handle} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
                 <div>
-                  <Link href={`/c/${sub.handle}`} className="font-medium hover:underline">
-                    {creator?.name ?? sub.handle}
-                  </Link>
+            <Link href={`/c/${sub.handle}`} className="font-medium hover:underline">
+              {creator?.name ?? (sub.handle.startsWith('0x') ? `${sub.handle.slice(0, 6)}…${sub.handle.slice(-4)}` : sub.handle)}
+            </Link>
                   <p className="text-[#606060]">
                     {left > 0
                       ? `${elapsedSeconds(sub, now)}s billed · ${formatMon(accrued(sub, now))} MON · ${formatMon(left)} left`

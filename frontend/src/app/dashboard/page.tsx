@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import Memberships from '@/components/Memberships';
+import Earnings from '@/components/Earnings';
 import Link from 'next/link';
 import { createJob, loadChainAgents, loadChainJobs, type ChainAgent, type ChainJob } from '@/lib/wallet';
 
-type SavedStamp = { stampId: string; prompt: string; model: string };
+type SavedStamp = { stampId: string; prompt: string; model: string; media?: 'image' | 'video' };
 
 function shortAddr(addr: string) {
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
@@ -33,6 +34,7 @@ export default function DashboardPage() {
   const [agents, setAgents] = useState<ChainAgent[]>([]);
   const [agent, setAgent] = useState('');
   const [prompt, setPrompt] = useState('');
+  const [kind, setKind] = useState<'image' | 'video'>('image');
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [saved, setSaved] = useState<SavedStamp[]>([]);
@@ -60,13 +62,14 @@ export default function DashboardPage() {
     try {
       setNote('Confirm the payment in your wallet.');
       const job = await createJob(chosen.address, prompt.trim());
-      setNote('Paid. Stamping the image.');
+      setNote(kind === 'video' ? 'Paid. Stamping every frame, this takes about a minute.' : 'Paid. Stamping the image.');
       const body = new FormData();
       body.set('prompt', prompt.trim());
       body.set('agent_address', chosen.address);
       body.set('creator_address', job.from);
       body.set('job_id', job.jobId);
       body.set('model', chosen.modelName);
+      body.set('kind', kind);
       const res = await fetch(`${GATEWAY}/generate`, { method: 'POST', body });
       const json = await res.json();
       if (!res.ok) throw new Error(json.detail || 'The gateway could not stamp this job');
@@ -119,6 +122,7 @@ export default function DashboardPage() {
         </div>
 
         <Memberships />
+        <Earnings />
 
         {/* Tabs */}
         <div className="flex gap-1 border-b border-black/10 mb-6">
@@ -142,16 +146,28 @@ export default function DashboardPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {saved.map((stamp) => (
               <div key={stamp.stampId} className="rounded-xl border border-black/10 bg-white overflow-hidden">
-                <a href={`${GATEWAY}/stamps/${stamp.stampId}.png`} download={`${stamp.stampId}.png`}>
-                  <img src={`${GATEWAY}/stamps/${stamp.stampId}.png`} alt="" className="h-40 w-full object-cover bg-[#f6f7f8]" />
-                </a>
+                {stamp.media === 'video' ? (
+                  <video
+                    src={`${GATEWAY}/stamps/${stamp.stampId}.mp4`}
+                    controls
+                    loop
+                    muted
+                    className="h-40 w-full object-cover bg-[#f6f7f8]"
+                  />
+                ) : (
+                  <a href={`${GATEWAY}/stamps/${stamp.stampId}.png`} download={`${stamp.stampId}.png`}>
+                    <img src={`${GATEWAY}/stamps/${stamp.stampId}.png`} alt="" className="h-40 w-full object-cover bg-[#f6f7f8]" />
+                  </a>
+                )}
                 <div className="p-4">
                   <div className="flex items-center justify-between mb-3">
                     <ModelBadge model={stamp.model} />
                     <span className="text-xs font-mono text-[#606060]">#{stamp.stampId}</span>
                   </div>
                   <p className="text-xs text-[#606060] line-clamp-2 mb-3 leading-relaxed">{stamp.prompt}</p>
-                  <Link href="/verify" className="text-xs text-[#065fd4] hover:underline">Verify this image</Link>
+                  <Link href="/verify" className="text-xs text-[#065fd4] hover:underline">
+                    Verify this {stamp.media === 'video' ? 'video' : 'image'}
+                  </Link>
                 </div>
               </div>
             ))}
@@ -246,19 +262,38 @@ export default function DashboardPage() {
               </div>
 
               <div>
+                <label className="block text-xs text-zinc-500 mb-2">Output</label>
+                <div className="flex gap-2">
+                  {(['image', 'video'] as const).map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      aria-pressed={kind === option}
+                      onClick={() => setKind(option)}
+                      className={`h-8 px-4 rounded-full text-sm font-medium capitalize ${
+                        kind === option ? 'bg-[#0f0f0f] text-white' : 'bg-black/5 text-[#3f3f3f]'
+                      }`}
+                    >
+                      {option}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
                 <label className="block text-xs text-zinc-500 mb-2">Prompt</label>
                 <textarea
                   rows={4}
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
-                  placeholder="Describe the image you want to generate..."
+                  placeholder={`Describe the ${kind} you want to generate...`}
                   className="w-full bg-black/5 border border-black/10 rounded-xl px-4 py-2.5 text-sm text-[#0f0f0f] placeholder-zinc-600 resize-none focus:outline-none focus:border-zinc-400"
                 />
               </div>
 
               <div className="rounded-xl border border-zinc-400/20 bg-black/5 p-3 text-xs text-zinc-400">
                 <span className="text-[#3f3f3f] font-medium">Payment flow: </span>
-                0.05 MON is locked in JobEscrow. The gateway stamps the image, writes provenance, then pays the agent.
+                0.05 MON is locked in JobEscrow. The gateway stamps the {kind}, writes provenance, then pays the agent.
               </div>
 
               <button

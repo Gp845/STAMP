@@ -49,6 +49,30 @@ sequenceDiagram
 - Known limits: stacked attacks (crop + JPEG, resize + crop + JPEG) often defeat the watermark. This is a provenance signal, not proof of authenticity.
 - False positives on never-stamped images: 0/30.
 
+### Crop recovery
+Verify also pads the image back out as if a 10-30% crop had been taken from the center or a corner, then decodes again. 12 photos, `python worker/crop_test.py`:
+
+| Attack | As given | With crop recovery |
+|---|---|---|
+| crop 20% from a corner | 11/12 | 12/12 |
+| crop 35% | 0/12 | 12/12 |
+| resize 50% + crop 20% + JPEG q40 | 10/12 | 12/12 |
+| JPEG q40, resize, center crop, screenshot | 12/12 | 12/12 |
+
+No stamp was reported on any unstamped image, including 576 padded decodes. An unstamped image takes about 3 s to verify. Videos skip this step because it cost about 40 s per clip.
+
+### Video
+Video frames are stamped at strength 2.0 instead of 1.0, and verify reads 16 frames instead of 6. A stamp found in one frame is accepted only if it is already registered; an unknown stamp needs two frames to agree. Three test clips, re-encoded at CRF 30, frames decoded out of 16:
+
+| Attack | Strength 1.0 | Strength 2.0 |
+|---|---|---|
+| re-encode only | 4-15 | 9-16 |
+| center crop 20% | 0-12 | 15-16 |
+| corner crop 20% | 0 | 5-12 |
+| scale 50% | 0 | 6-7 |
+
+Cost: PSNR drops from 43.4 dB to 37.8 dB. The four demo clips were stamped at 1.0 and keep that, because their unstamped originals were not kept. Verifying a video takes about 20 s.
+
 ## Status
 - [x] **Watermark + pHash Core Spike:** Completed (`worker/stampcore.py`)
 - [x] **Agent Identity Registry (ERC-8004):** Completed (`contracts/src/AgentRegistry.sol`)

@@ -1,6 +1,6 @@
 import hashlib, io, random, json
 from pathlib import Path
-from PIL import Image
+from PIL import Image, ImageOps
 import imagehash
 from trustmark import TrustMark
 
@@ -11,10 +11,28 @@ def _band_keys(h):
     bits = h.hash.flatten().astype(int)
     return [f"{int(''.join(map(str, bits[i*8:(i+1)*8])), 2):02x}" for i in range(8)]
 
-def stamp_image(img, stamp_id):
+def uncrops(img):
+    """The image as given, then padded back out as if a 10-30% crop had been taken from the center or a corner."""
+    yield img
+    w, h = img.size
+    for keep in (0.9, 0.8, 0.7):
+        W, H = int(w / keep), int(h / keep)
+        for ax, ay in ((0.5, 0.5), (0, 0), (1, 0), (0, 1), (1, 1)):
+            x, y = int((W - w) * ax), int((H - h) * ay)
+            yield ImageOps.expand(img, border=(x, y, W - w - x, H - h - y), fill=(128, 128, 128))
+
+def decode_stamp(img, crops=True):
+    """40-bit stamp id as an int, or None."""
+    for candidate in (uncrops(img) if crops else [img]):
+        secret, present, _ = _tm.decode(candidate, MODE='binary')
+        if present and len(secret) == 40:
+            return int(secret, 2)
+    return None
+
+def stamp_image(img, stamp_id, strength=1.0):
     """Hide a 40-bit ID in the image. Returns (stamped image, record to register)."""
     img = img.convert('RGB')
-    stamped = _tm.encode(img, format(stamp_id, '040b'), MODE='binary').convert('RGB')
+    stamped = _tm.encode(img, format(stamp_id, '040b'), MODE='binary', WM_STRENGTH=strength).convert('RGB')
     buf = io.BytesIO(); stamped.save(buf, 'PNG')
     h = imagehash.phash(stamped)
     record = {'stampId': stamp_id,
@@ -26,9 +44,9 @@ def verify_image(img, registry, use_watermark=True):
     """registry: dict of stampId -> record. Later this becomes the Envio GraphQL query."""
     img = img.convert('RGB')
     if use_watermark:                                   # Tier A
-        secret, present, _ = _tm.decode(img, MODE='binary')
-        if present and len(secret) == 40 and int(secret, 2) in registry:
-            return {'tier': 'A', 'stampId': int(secret, 2), 'label': 'Stamped: registry match'}
+        sid = decode_stamp(img)
+        if sid is not None and sid in registry:
+            return {'tier': 'A', 'stampId': sid, 'label': 'Stamped: registry match'}
     h = imagehash.phash(img)                            # Tier B
     keys = _band_keys(h)
     cands = [r for r in registry.values() if any(a == b for a, b in zip(keys, r['bands']))]

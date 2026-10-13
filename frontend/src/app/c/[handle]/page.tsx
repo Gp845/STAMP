@@ -5,7 +5,9 @@ import Avatar from '@/components/Avatar';
 import JoinButton from '@/components/JoinButton';
 import PostCard from '@/components/PostCard';
 import { CREATORS, creatorFromAddress, formatCount, getCreator, POSTS } from '@/lib/feed';
+import { memberPrice } from '@/lib/member-price';
 import { listPosts, toFeedPost } from '@/lib/posts-db';
+import ChannelDesk from '@/components/ChannelDesk';
 
 export function generateStaticParams() {
   return CREATORS.map((c) => ({ handle: c.handle }));
@@ -26,8 +28,9 @@ async function ChannelView({ params }: { params: Promise<{ handle: string }> }) 
   const uploaded = listPosts()
     .filter((row) => row.creator === (known?.address ?? handle).toLowerCase())
     .map(toFeedPost);
-  const creator = known ?? (uploaded.length ? creatorFromAddress(handle) : undefined);
+  let creator = known ?? (uploaded.length ? creatorFromAddress(handle) : undefined);
   if (!creator) notFound();
+  if (!known) creator = { ...creator, memberPrice: memberPrice(creator.address) };
   const posts = [...uploaded, ...POSTS.filter((p) => p.creator === creator.handle)];
   const aiCount = posts.filter((p) => p.origin === 'agent').length;
 
@@ -66,6 +69,8 @@ async function ChannelView({ params }: { params: Promise<{ handle: string }> }) 
           )}
         </div>
       </div>
+
+      <ChannelDesk address={creator.address} monthly={creator.memberPrice} canPrice={!known} />
 
       {Number(creator.memberPrice) > 0 && (
         <>

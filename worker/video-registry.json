@@ -94,5 +94,22 @@
       "d2ced22582639fcc",
       "f806d8bdd983c9a4"
     ]
+  },
+  "c584b12c01": {
+    "id": "c584b12c01",
+    "stampId": "c584b12c01",
+    "contentHash": "a6251fc5d5097aa39af591b327b35321dec54d8ca36c8d4fe728fe07c135b7db",
+    "model": "Test model",
+    "agent": "0x95e229a7dbbcd1a066956cd6f48204570a34e5eb",
+    "creator": "0x95e229a7dbbcd1a066956cd6f48204570a34e5eb",
+    "kind": "ATTESTED",
+    "timestamp": 1791895307,
+    "txHash": "0xb67949111ff0b5deca353d88743d146b0fbf4a6b5b226254d5b7c111b9bf1a83",
+    "blockNumber": 0,
+    "frames": [
+      "c8e79091ac066f9f",
+      "e8e7b091b4063d9e",
+      "a280f5bab44e999e"
+    ]
   }
 }

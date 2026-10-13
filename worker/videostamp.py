@@ -3,15 +3,19 @@
 shortcut: the registry is worker/video-registry.json, not Envio. Upgrade when video stamps are written on Monad.
 """
 import hashlib, json, re, shutil, subprocess, sys, tempfile
+from collections import Counter
 from pathlib import Path
 
 import imagehash
 from PIL import Image
 
-from stampcore import MAX_HAM, _tm, stamp_image
+from stampcore import MAX_HAM, decode_stamp, stamp_image
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = Path(__file__).with_name('video-registry.json')
+# 2.0 kept the stamp through CRF 30, a 20% crop and a 50% downscale on every test clip; 1.0 lost it. Costs ~6 dB PSNR.
+VIDEO_STRENGTH = 2.0
+SAMPLED_FRAMES = 16
 
 # Same ids the feed already shows.
 CLIPS = {
@@ -106,7 +110,7 @@ def stamp_file(src, stamp_id, meta):
         stored = []
         step = max(1, round(fps))
         for i, path in enumerate(paths):
-            stamped, rec = stamp_image(Image.open(path), stamp_id)
+            stamped, rec = stamp_image(Image.open(path), stamp_id, VIDEO_STRENGTH)
             stamped.save(path)
             if i % step == 0:
                 stored.append(rec['phash'])
@@ -136,18 +140,27 @@ def stamp_file(src, stamp_id, meta):
     return rec
 
 
+def pick_stamp(ids, known):
+    """Most common decoded id. One frame is enough for a known stamp; an unknown one needs two frames to agree."""
+    votes = Counter(i for i in ids if i is not None)
+    if not votes:
+        return None
+    sid, count = votes.most_common(1)[0]
+    return sid if sid in known or count >= 2 else None
+
+
 def verify_video(src):
     reg = load_registry()
-    frames = sample_frames(src)
-    for im in frames:
-        secret, present, _ = _tm.decode(im, MODE='binary')
-        if present and len(secret) == 40:
-            sid = f'{int(secret, 2):010x}'
-            rec = reg.get(sid)
-            if rec:
-                return {'tier': 'A', 'stampId': sid, 'record': public_record(rec),
-                        'label': 'Watermark decoded from video frames'}
-            return {'tier': 'A', 'stampId': sid, 'label': 'Watermark decoded but stamp not in the video registry'}
+    frames = sample_frames(src, SAMPLED_FRAMES)
+    # shortcut: no crop recovery for video, it cost ~40s per clip; the stronger video stamp covers 20% crops instead.
+    found = pick_stamp([decode_stamp(im, crops=False) for im in frames], {int(k, 16) for k in reg})
+    if found is not None:
+        sid = f'{found:010x}'
+        rec = reg.get(sid)
+        if rec:
+            return {'tier': 'A', 'stampId': sid, 'record': public_record(rec),
+                    'label': 'Watermark decoded from video frames'}
+        return {'tier': 'A', 'stampId': sid, 'label': 'Watermark decoded but stamp not in the video registry'}
     best = None
     hashes = [imagehash.phash(im) for im in frames]
     for rec in reg.values():
@@ -188,6 +201,11 @@ def main():
     else:
         sys.exit('use stamp-all or verify <file>')
 
+
+assert pick_stamp([None, 5, None], {5}) == 5
+assert pick_stamp([None, 5, None], set()) is None
+assert pick_stamp([7, 5, 7], set()) == 7
+assert pick_stamp([None, None], {5}) is None
 
 if __name__ == '__main__':
     main()

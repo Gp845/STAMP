@@ -4,6 +4,8 @@ import json
 import base64
 import random
 import hashlib
+import sys
+import time
 import urllib.parse
 import urllib.request
 import urllib.error
@@ -11,7 +13,7 @@ from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from PIL import Image
+from PIL import Image, ImageOps
 import imagehash
 from web3 import Web3
 from dotenv import load_dotenv
@@ -108,6 +110,23 @@ def send(fn):
 
 MAX_HAM = 7
 
+def _uncrops(img):
+    """The image as given, then padded back out as if a 10-30% crop had been taken from the center or a corner."""
+    yield img
+    w, h = img.size
+    for keep in (0.9, 0.8, 0.7):
+        W, H = int(w / keep), int(h / keep)
+        for ax, ay in ((0.5, 0.5), (0, 0), (1, 0), (0, 1), (1, 1)):
+            x, y = int((W - w) * ax), int((H - h) * ay)
+            yield ImageOps.expand(img, border=(x, y, W - w - x, H - h - y), fill=(128, 128, 128))
+
+def _decode_stamp(img):
+    for candidate in _uncrops(img):
+        secret, present, _ = _tm.decode(candidate, MODE='binary')
+        if present and len(secret) == 40:
+            return f"{int(secret, 2):010x}"
+    return None
+
 def _band_keys(h, n=8):
     bits = h.hash.flatten().astype(int)
     k = 64 // n
@@ -120,39 +139,48 @@ async def generate_and_stamp(
     creator_address: str = Form(...),
     model: str = Form('Mock Agent Gen'),
     job_id: str = Form(''),
+    kind: str = Form('image'),
 ):
     """
-    1. Calls AI Model to generate image
+    1. Calls the agent's provider for an image or a video
     2. Embeds Watermark & gets pHash
     3. Anchors on Monad
     4. Returns Image URL & Stamp info
     """
-    remote = provider_png(agent_address, prompt)
-    if remote:
-        img = Image.open(io.BytesIO(remote)).convert("RGB")
-    else:
-        img = Image.new('RGB', (1024, 1024), color = (random.randint(0,255), random.randint(0,255), random.randint(0,255)))
-    
+    if kind not in ("image", "video"):
+        raise HTTPException(status_code=400, detail="kind must be image or video")
+    remote = provider_media(agent_address, prompt, kind)
     stamp_id = random.getrandbits(40)
     stamp_id_hex = f"{stamp_id:010x}"
-    
-    if HAS_TRUSTMARK:
-        stamped = _tm.encode(img, format(stamp_id, '040b'), MODE='binary').convert('RGB')
-    else:
-        # Mock stamping
-        stamped = img
-
-    buf = io.BytesIO()
-    stamped.save(buf, format='PNG')
-    img_bytes = buf.getvalue()
-    content_hash = hashlib.sha256(img_bytes).hexdigest()
-    
-    h = imagehash.phash(stamped)
-    bands = _band_keys(h, 8)
-    
     model_name = model or "Mock Agent Gen"
-    with open(os.path.join(STAMP_DIR, f"{stamp_id_hex}.png"), "wb") as stamp_file:
-        stamp_file.write(img_bytes)
+    img_bytes = None
+
+    if kind == "video":
+        if not remote:
+            raise HTTPException(status_code=503, detail="No provider is online for this agent, so no video was made.")
+        content_hash, bands = stamp_video(remote, stamp_id, model_name, agent_address, creator_address)
+    else:
+        if remote:
+            img = Image.open(io.BytesIO(remote)).convert("RGB")
+        else:
+            img = Image.new('RGB', (1024, 1024), color = (random.randint(0,255), random.randint(0,255), random.randint(0,255)))
+
+        if HAS_TRUSTMARK:
+            stamped = _tm.encode(img, format(stamp_id, '040b'), MODE='binary').convert('RGB')
+        else:
+            # Mock stamping
+            stamped = img
+
+        buf = io.BytesIO()
+        stamped.save(buf, format='PNG')
+        img_bytes = buf.getvalue()
+        content_hash = hashlib.sha256(img_bytes).hexdigest()
+
+        h = imagehash.phash(stamped)
+        bands = _band_keys(h, 8)
+
+        with open(os.path.join(STAMP_DIR, f"{stamp_id_hex}.png"), "wb") as stamp_file:
+            stamp_file.write(img_bytes)
     with open(os.path.join(STAMP_DIR, f"{stamp_id_hex}.json"), "w", encoding="utf-8") as meta_file:
         json.dump({
             "stampId": stamp_id_hex,
@@ -162,6 +190,7 @@ async def generate_and_stamp(
             "creator": creator_address,
             "jobId": job_id,
             "contentHash": content_hash,
+            "media": kind,
         }, meta_file)
     tx_hash = "0xmocktxhash"
     settle_tx = None
@@ -184,6 +213,12 @@ async def generate_and_stamp(
             print(f"Error anchoring stamp: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
+    if kind == "video":
+        from videostamp import load_registry, save_registry
+        reg = load_registry()
+        reg[stamp_id_hex]["txHash"] = tx_hash
+        save_registry(reg)
+
     return JSONResponse({
         "status": "success",
         "stampId": stamp_id_hex,
@@ -191,8 +226,33 @@ async def generate_and_stamp(
         "txHash": tx_hash,
         "settleTx": settle_tx,
         "bands": bands,
-        "image": base64.b64encode(img_bytes).decode(),
+        "media": kind,
+        "image": base64.b64encode(img_bytes).decode() if img_bytes else None,
     })
+
+WORKER_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "worker")
+
+def stamp_video(data: bytes, stamp_id: int, model: str, agent: str, creator: str):
+    """Stamps every frame with the worker's video stamper. Returns the content hash and the first frame's bands."""
+    if WORKER_DIR not in sys.path:
+        sys.path.insert(0, WORKER_DIR)
+    from videostamp import stamp_file
+
+    stamp_id_hex = f"{stamp_id:010x}"
+    path = os.path.join(STAMP_DIR, f"{stamp_id_hex}.mp4")
+    with open(path, "wb") as handle:
+        handle.write(data)
+    # shortcut: stamps inside the request (~1 s per frame), fine for short clips; move to a job queue for long video.
+    rec = stamp_file(path, stamp_id, {
+        "stampId": stamp_id_hex,
+        "model": model,
+        "agent": agent,
+        "creator": creator,
+        "timestamp": int(time.time()),
+        "txHash": "",
+        "blockNumber": 0,
+    })
+    return rec["contentHash"], _band_keys(imagehash.hex_to_hash(rec["frames"][0]), 8)
 
 STAMPS_ABI = [
     {
@@ -212,12 +272,12 @@ STAMPS_ABI = [
     }
 ]
 
-def provider_png(agent: str, prompt: str):
+def provider_media(agent: str, prompt: str, kind: str = "image"):
     url = PROVIDERS.get(agent.lower())
     if not url:
         print(f"no provider online for {agent}")
         return None
-    data = urllib.parse.urlencode({"prompt": prompt}).encode()
+    data = urllib.parse.urlencode({"prompt": prompt, "kind": kind}).encode()
     req = urllib.request.Request(url + "/generate", data=data)
     try:
         with urllib.request.urlopen(req, timeout=120) as res:
@@ -262,6 +322,15 @@ def stamp_png(stamp_id: str):
     if not os.path.isfile(path):
         raise HTTPException(status_code=404, detail="image was not kept")
     return FileResponse(path, media_type="image/png")
+
+@app.get("/stamps/{stamp_id}.mp4")
+def stamp_mp4(stamp_id: str):
+    if not stamp_id.isalnum():
+        raise HTTPException(status_code=404, detail="unknown stamp")
+    path = os.path.join(STAMP_DIR, f"{stamp_id}.mp4")
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="video was not kept")
+    return FileResponse(path, media_type="video/mp4")
 
 @app.get("/cre/stamp/{stamp_id}")
 def cre_stamp(stamp_id: str):
@@ -364,9 +433,8 @@ async def verify(image: UploadFile = File(...)):
     # Tier A
     if HAS_TRUSTMARK:
         try:
-            secret, present, _ = _tm.decode(img, MODE='binary')
-            if present and len(secret) == 40:
-                stamp_id_hex = f"{int(secret, 2):010x}"
+            stamp_id_hex = _decode_stamp(img)
+            if stamp_id_hex:
                 tier = "A"
                 label = "Watermark decoded successfully"
         except Exception as e:

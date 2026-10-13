@@ -1,4 +1,4 @@
-"""Runs on the provider's machine. Hashes the local weights file, checks the agent registry, then returns a PNG."""
+"""Runs on the provider's machine. Hashes the local weights file, checks the agent registry, then returns a PNG or MP4."""
 
 import hashlib
 import os
@@ -9,7 +9,7 @@ import urllib.request
 from fastapi import FastAPI, Form, HTTPException
 from fastapi.responses import Response
 from web3 import Web3
-from test_model import render
+from test_model import render, render_video
 
 AGENT = os.environ["AGENT_ADDRESS"]
 WEIGHTS = os.environ["WEIGHTS_PATH"]
@@ -111,8 +111,10 @@ def generate_image(prompt: str) -> bytes:
 
 
 @app.post("/generate")
-def generate(prompt: str = Form(...)):
+def generate(prompt: str = Form(...), kind: str = Form("image")):
     assert_weights()
+    if kind == "video":
+        return Response(render_video(WEIGHTS, prompt), media_type="video/mp4")
     return Response(generate_image(prompt), media_type="image/png")
 
 

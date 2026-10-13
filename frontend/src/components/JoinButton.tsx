@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   accrued,
   cancelSub,
@@ -9,6 +9,7 @@ import {
   perSecond,
   remaining,
   startSub,
+  syncOne,
   useNow,
   useSubs,
 } from '@/lib/subs';
@@ -43,6 +44,10 @@ export default function JoinButton({
   const alive = !!sub && remaining(sub, now) > 0;
   const spent = sub ? accrued(sub, now) : 0;
   const left = sub ? remaining(sub, now) : 0;
+
+  useEffect(() => {
+    if (sub?.onChain) syncOne(handle).catch(() => {});
+  }, [handle, sub?.onChain]);
 
   return (
     <div className="inline-flex flex-col items-start gap-2">

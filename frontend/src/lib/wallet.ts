@@ -10,6 +10,9 @@ const AGENTS_SELECTOR = 'fd66091e';
 const CREATE_JOB = '3c6a1c67';
 const SUBSCRIBE = '8de69284';
 const CANCEL = '4c33fe94';
+const COLLECT = '06ec16f8';
+const SUBS_SELECTOR = 'cd755b41';
+const SUBSCRIBED_TOPIC = '0x7f167950d6405e671782a5bac6c60bd0453dacbcc537d8b456f2d78b1e1751f6';
 const REGISTERED_TOPIC = '0x023c5efe572c42192271951adb0e77f97d7fc84bc761d026189ac08617346824';
 const JOB_CREATED = '0x8f4ee83cefe0dfb2f73fe6057bfa5b233fc43358bbb5f5606f444cbd4c5c4f8c';
 const TEN_MON = '0x8ac7230489e80000';
@@ -57,10 +60,17 @@ function decodeString(data: string, offsetBytes: number) {
 
 const MON = BigInt(10) ** BigInt(18);
 
-function formatMon(wei: bigint) {
+export function formatWei(wei: bigint) {
   const whole = wei / MON;
   const frac = (wei % MON).toString().padStart(18, '0').slice(0, 2).replace(/0+$/, '');
   return frac ? `${whole.toString()}.${frac}` : whole.toString();
+}
+
+export async function currentAccount() {
+  const eth = (window as unknown as { ethereum?: Ethereum }).ethereum;
+  if (!eth) return null;
+  const accounts = (await eth.request({ method: 'eth_accounts' })) as string[];
+  return accounts[0] ?? null;
 }
 
 export async function connectWallet() {
@@ -184,6 +194,16 @@ export async function subscribeOnChain(creator: string, rateWei: bigint, valueWe
   await waitReceipt(hash);
 }
 
+export async function collectFrom(fan: string) {
+  if (!SUBS_READY) throw new Error('The membership contract address is not set.');
+  const from = await connectWallet();
+  const hash = (await provider().request({
+    method: 'eth_sendTransaction',
+    params: [{ from, to: CONTRACTS.streamSub.address, data: `0x${COLLECT}${pad(fan)}` }],
+  })) as string;
+  await waitReceipt(hash);
+}
+
 export async function cancelOnChain(creator: string) {
   if (!SUBS_READY) throw new Error('The membership contract address is not set.');
   const from = await connectWallet();
@@ -263,7 +283,7 @@ export async function loadChainAgents(): Promise<ChainAgent[]> {
         address,
         modelName: profile?.modelName || decodeString(raw, Number(word(0))),
         weightsHash: profile?.weightsHash || decodeString(raw, Number(word(1))),
-        stake: formatMon(word(2)),
+        stake: formatWei(word(2)),
         reputation: Number(word(3)),
         isActive: active,
       };
@@ -345,11 +365,98 @@ export async function loadChainJobs(): Promise<ChainJob[]> {
       id: String(i),
       creator: `0x${raw.slice(26, 66)}`,
       agent: `0x${raw.slice(2 + 64 + 24, 2 + 128)}`,
-      payment: formatMon(word(2)),
+      payment: formatWei(word(2)),
       status: JOB_STATUS[status] || String(status),
       prompt: decodeString(raw, Number(word(4))),
       stampId: stamps[String(i)] || '',
     });
   }
   return jobs.reverse();
+}
+
+export interface IncomingMember {
+  fan: string;
+  creator: string;
+  depositWei: string;
+  rateWei: string;
+  start: number;
+}
+
+async function subscriptionPairs(): Promise<{ fan: string; creator: string }[]> {
+  if (!SUBS_READY) return [];
+  const latest = Number(await rpc('eth_blockNumber', []));
+  let from = REGISTRY_BIRTH;
+  let known: { fan: string; creator: string }[] = [];
+  try {
+    const saved = JSON.parse(localStorage.getItem('stamp-sub-scan') || '');
+    if (saved?.chain === CHAIN.id && saved.block >= REGISTRY_BIRTH && saved.block <= latest) {
+      from = saved.block + 1;
+      known = saved.pairs;
+    }
+  } catch {
+    known = [];
+  }
+  const ranges: [number, number][] = [];
+  for (let start = from; start <= latest; start += LOG_SPAN) {
+    ranges.push([start, Math.min(latest, start + LOG_SPAN - 1)]);
+  }
+  const pairs = [...known];
+  for (let i = 0; i < ranges.length; i += 8) {
+    const batch = await Promise.all(
+      ranges.slice(i, i + 8).map(([start, end]) =>
+        rpc('eth_getLogs', [
+          {
+            address: CONTRACTS.streamSub.address,
+            fromBlock: `0x${start.toString(16)}`,
+            toBlock: `0x${end.toString(16)}`,
+            topics: [SUBSCRIBED_TOPIC],
+          },
+        ]),
+      ),
+    );
+    for (const part of batch) {
+      for (const log of part as { topics: string[] }[]) {
+        pairs.push({ fan: `0x${log.topics[1].slice(26)}`, creator: `0x${log.topics[2].slice(26)}` });
+      }
+    }
+  }
+  localStorage.setItem('stamp-sub-scan', JSON.stringify({ chain: CHAIN.id, block: latest, pairs }));
+  return pairs;
+}
+
+async function readMembership(fan: string, creator: string): Promise<IncomingMember | null> {
+  const data = `0x${SUBS_SELECTOR}${pad(fan)}${pad(creator)}`;
+  const raw = (await rpc('eth_call', [{ to: CONTRACTS.streamSub.address, data }, 'latest'])) as string;
+  if (!raw || raw.length < 2 + 64 * 5) return null;
+  const word = (i: number) => BigInt(`0x${raw.slice(2 + i * 64, 2 + (i + 1) * 64)}`);
+  if (word(4) !== BigInt(1)) return null;
+  return { fan, creator, depositWei: word(2).toString(), rateWei: word(1).toString(), start: Number(word(3)) };
+}
+
+export function loadMembership(fan: string, creator: string) {
+  return readMembership(fan, creator);
+}
+
+async function activeMemberships(pairs: { fan: string; creator: string }[]) {
+  const seen = new Set<string>();
+  const unique = pairs.filter((pair) => {
+    const key = `${pair.fan.toLowerCase()}:${pair.creator.toLowerCase()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const rows = await Promise.all(unique.map((pair) => readMembership(pair.fan, pair.creator)));
+  return rows.filter((row): row is IncomingMember => row !== null);
+}
+
+export async function loadIncoming(creator: string) {
+  const pairs = await subscriptionPairs();
+  const mine = pairs.filter((pair) => pair.creator.toLowerCase() === creator.toLowerCase());
+  return activeMemberships(mine);
+}
+
+export async function loadFanSubs(fan: string) {
+  const pairs = await subscriptionPairs();
+  const mine = pairs.filter((pair) => pair.fan.toLowerCase() === fan.toLowerCase());
+  return activeMemberships(mine);
 }
